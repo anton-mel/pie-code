@@ -93,7 +93,9 @@ class Team(Pie):
                     future.set_exception(RuntimeError(f"team ended: {value}"))
                 return
             out = json.loads(value)
-            future = self.waiting.pop(out["k"])
+            future = self.waiting.pop(out["k"], None)
+            if future is None or future.done():
+                continue
             future.set_exception(RuntimeError(out["error"])) if "error" in out else future.set_result(out)
 
     async def op(self, op: str, k: int, text: str, n: int, sources=(), prefix: str = "") -> str:
@@ -112,6 +114,20 @@ class Team(Pie):
 
     async def pipe(self, sources, k, prefix, text, n):
         return await self.op("pipe", k, text, n, sources, prefix)
+
+    async def control(self, op: str, k: int, name: str = ""):
+        self.waiting[k] = asyncio.get_running_loop().create_future()
+        await self.process.signal(json.dumps({"op": op, "k": k, "name": name}))
+        await asyncio.wait_for(self.waiting[k], self.args.timeout)
+
+    async def kill(self, k):
+        await self.control("kill", k)
+
+    async def checkpoint(self, k, name):
+        await self.control("checkpoint", k, name)
+
+    async def rollback(self, k, name):
+        await self.control("rollback", k, name)
 
     async def stop(self):
         await self.process.signal("quit")
@@ -154,6 +170,19 @@ class Separate(Pie):
     async def pipe(self, sources, k, prefix, text, n):
         return await self.send(k, prefix + "".join(self.last[s] for s in sources) + text, n)
 
+    async def kill(self, k):
+        await self.agents.pop(k).signal("quit")
+
+    async def checkpoint(self, k, name):
+        self.saved = getattr(self, "saved", {})
+        self.saved[name] = self.history[k]
+
+    async def rollback(self, k, name):
+        await self.kill(k)
+        self.history[k] = self.saved[name]
+        self.agents[k] = await self.client.launch_process(self.program, {"context": self.saved[name], "max_tokens": 1})
+        await asyncio.wait_for(self.agents[k].recv(), self.args.timeout)  # it re-reads, then is ready
+
     async def stop(self):
         for agent in self.agents.values():
             await agent.signal("quit")
@@ -194,6 +223,16 @@ class Http:
 
     async def pipe(self, sources, k, prefix, text, n):
         return await self.turn(k, prefix + "".join(self.last[s] for s in sources) + text, n)
+
+    async def kill(self, k):
+        self.history.pop(k, None)
+
+    async def checkpoint(self, k, name):
+        self.saved = getattr(self, "saved", {})
+        self.saved[name] = self.history[k]
+
+    async def rollback(self, k, name):
+        self.history[k] = self.saved[name]
 
     async def stop(self):
         self.server.terminate()

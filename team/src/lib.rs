@@ -9,12 +9,18 @@
 //! - `pipe`: an agent reads what other agents last wrote, token for token,
 //!   without leaving the engine (`{"op":"pipe","from":[1,2],"k":0,"prefix":..,"text":..}`).
 //!
-//! Every op ends with the agent writing `max_tokens` tokens, which stay in its
-//! memory. Ops on different agents run at once; replies come back as
+//! - `kill`: an agent ends; one in the middle of a turn is stopped there, like
+//!   a signal, and its GPU time goes to the others. With `fork` this is branch
+//!   and prune: try N ways at once, keep the first that works.
+//! - `checkpoint` / `rollback`: save an agent as a named fork, and later put it
+//!   back exactly as it was, nothing re-read: undo for a failed tool action.
+//!
+//! `read`, `fork`, `send` and `pipe` end with the agent writing `max_tokens`
+//! tokens, which stay in its memory. Ops on different agents run at once; replies come back as
 //! `{"k","text","fed","ms"}`, in the order they finish.
 
 use futures::StreamExt;
-use futures::future::{Either, LocalBoxFuture, select};
+use futures::future::{AbortHandle, Abortable, Either, LocalBoxFuture, select};
 use futures::stream::FuturesUnordered;
 use inferlet::eta::hybrid::prelude::*;
 use inferlet::session;
@@ -34,6 +40,9 @@ struct Op {
     prefix: String,
     #[serde(default = "default_max_tokens")]
     max_tokens: usize,
+    /// For `checkpoint` and `rollback`.
+    #[serde(default)]
+    name: String,
 }
 
 fn default_max_tokens() -> usize {
@@ -222,6 +231,7 @@ fn fresh() -> Result<Agent> {
 }
 
 type Done = (u32, Member, Result<(String, usize, f64)>);
+type Ended = (u32, std::result::Result<Done, futures::future::Aborted>);
 
 /// One turn: read `tokens` after what `m` holds, then write `count` tokens.
 async fn turn(k: u32, mut m: Member, tokens: Vec<u32>, count: usize) -> Done {
@@ -240,6 +250,18 @@ async fn turn(k: u32, mut m: Member, tokens: Vec<u32>, count: usize) -> Done {
     (k, m, result)
 }
 
+fn ack(k: u32, what: &str) {
+    session::send(&format!(r#"{{"k":{k},"{what}":true,"text":""}}"#));
+}
+
+/// A copy-on-write twin of `m`, for forks and checkpoints.
+fn twin(m: &Member) -> Result<Member> {
+    let on = Pipeline::new();
+    let agent = m.agent.fork(&on)?;
+    on.close();
+    Ok(Member { agent, pending: m.pending.clone(), last: m.last.clone() })
+}
+
 fn reply(k: u32, result: &Result<(String, usize, f64)>) {
     let line = match result {
         Ok((text, fed, ms)) => format!(
@@ -254,7 +276,9 @@ fn reply(k: u32, result: &Result<(String, usize, f64)>) {
 #[inferlet::main]
 async fn main(_: inferlet::serde_json::Value) -> Result<String> {
     let mut members: HashMap<u32, Member> = HashMap::new();
-    let mut running: FuturesUnordered<LocalBoxFuture<'static, Done>> = FuturesUnordered::new();
+    let mut saved: HashMap<String, Member> = HashMap::new();
+    let mut stops: HashMap<u32, AbortHandle> = HashMap::new();
+    let mut running: FuturesUnordered<LocalBoxFuture<'static, Ended>> = FuturesUnordered::new();
     let mut inbox = Box::pin(session::receive());
     session::send(r#"{"ready":true}"#);
     loop {
@@ -269,10 +293,15 @@ async fn main(_: inferlet::serde_json::Value) -> Result<String> {
                     inbox = Box::pin(session::receive());
                     message
                 }
-                Either::Right((done, _)) => {
-                    if let Some((k, member, result)) = done {
-                        reply(k, &result);
-                        members.insert(k, member);
+                Either::Right((ended, _)) => {
+                    match ended {
+                        Some((_, Ok((k, member, result)))) => {
+                            stops.remove(&k);
+                            reply(k, &result);
+                            members.insert(k, member);
+                        }
+                        Some((k, Err(_))) => ack(k, "killed"),
+                        None => {}
                     }
                     continue;
                 }
@@ -289,15 +318,47 @@ async fn main(_: inferlet::serde_json::Value) -> Result<String> {
                 continue;
             }
         };
+        match op.op.as_str() {
+            "kill" => {
+                if let Some(stop) = stops.remove(&op.k) {
+                    stop.abort(); // acknowledged when its turn unwinds
+                } else {
+                    members.remove(&op.k);
+                    ack(op.k, "killed");
+                }
+                continue;
+            }
+            "checkpoint" => {
+                match members.get(&op.k).ok_or_else(|| "checkpoint: no such idle agent".into()).and_then(twin) {
+                    Ok(copy) => {
+                        saved.insert(op.name.clone(), copy);
+                        ack(op.k, "saved");
+                    }
+                    Err(e) => reply(op.k, &Err(e)),
+                }
+                continue;
+            }
+            "rollback" => {
+                match saved.get(&op.name).ok_or_else(|| "rollback: no such checkpoint".into()).and_then(twin) {
+                    Ok(copy) => {
+                        if let Some(stop) = stops.remove(&op.k) {
+                            stop.abort();
+                        }
+                        members.insert(op.k, copy);
+                        ack(op.k, "restored");
+                    }
+                    Err(e) => reply(op.k, &Err(e)),
+                }
+                continue;
+            }
+            _ => {}
+        }
         let text = model::encode(&op.text);
         let started: Result<(Member, Vec<u32>)> = (|| match op.op.as_str() {
             "read" => Ok((Member { agent: fresh()?, pending: Vec::new(), last: Vec::new() }, text)),
             "fork" => {
                 let parent = op.from.first().and_then(|a| members.get(a)).ok_or("fork: no such idle agent")?;
-                let on = Pipeline::new();
-                let agent = parent.agent.fork(&on)?;
-                on.close();
-                Ok((Member { agent, pending: parent.pending.clone(), last: Vec::new() }, text))
+                Ok((twin(parent)?, text))
             }
             "send" => Ok((members.remove(&op.k).ok_or("send: no such idle agent")?, text)),
             "pipe" => {
@@ -311,7 +372,13 @@ async fn main(_: inferlet::serde_json::Value) -> Result<String> {
             other => Err(format!("unknown op {other}").into()),
         })();
         match started {
-            Ok((member, tokens)) => running.push(Box::pin(turn(op.k, member, tokens, op.max_tokens))),
+            Ok((member, tokens)) => {
+                let (stop, registration) = AbortHandle::new_pair();
+                stops.insert(op.k, stop);
+                let k = op.k;
+                let work = Abortable::new(turn(k, member, tokens, op.max_tokens), registration);
+                running.push(Box::pin(async move { (k, work.await) }));
+            }
             Err(e) => reply(op.k, &Err(e)),
         }
     }
