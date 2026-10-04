@@ -93,6 +93,13 @@ def report(args, read: float, loop: float, steps: list, peak: Peak, extra: dict)
         log.write(json.dumps(row) + "\n")
 
 
+async def prefetch(client, process_id: str):
+    """pie's prefetch_process request, sent raw: the client in pie/ predates it."""
+    import msgpack
+
+    await client.ws.send(msgpack.packb({"type": "prefetch_process", "process_id": process_id}, use_bin_type=True))
+
+
 def disk_gb(path: Path) -> float:
     out = subprocess.run(["du", "-sk", path], capture_output=True, text=True).stdout.split()
     return round(int(out[0]) / 2**20, 1) if out else 0.0
@@ -137,7 +144,14 @@ async def pie(args, peak: Peak):
                 tool = is_tool(args, agent, step)
                 steps.append((step, time.monotonic() - sent, answer in said, said, k, tool, limit))
                 if tool:
-                    await asyncio.sleep(args.tool)  # the tool runs; the agent holds its context and waits
+                    # The tool runs; the agent holds its context and waits. With --prefetch the
+                    # engine is told just before the tool returns, so the agent is back on the
+                    # device when its output arrives.
+                    lead = min(args.prefetch, args.tool) if args.prefetch > 0 else 0
+                    await asyncio.sleep(args.tool - lead)
+                    if lead:
+                        await prefetch(client, agents[k].process_id)
+                        await asyncio.sleep(lead)
 
         start = time.monotonic()
         await asyncio.gather(*(loop(k) for k in range(args.agents)))
@@ -244,6 +258,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-tokens", type=int, default=16, help="tokens per tool call")
     parser.add_argument("--tool-share", type=float, default=1.0, help="share of steps that call a tool; the rest are thinking steps")
     parser.add_argument("--think-tokens", type=int, default=256, help="tokens per thinking step")
+    parser.add_argument("--prefetch", type=float, default=0, help="pie only: seconds before a tool returns to prefetch its agent")
     parser.add_argument("--timeout", type=float, default=1800)
     args = parser.parse_args()
     patterns = {"pie": "target/release/pie -c", "ollama": "Ollama.app/Contents/Resources/llama-server", "llama": "llama-b11312/llama-server"}
