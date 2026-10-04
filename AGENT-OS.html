@@ -1,0 +1,214 @@
+<!doctype html><meta charset=utf-8><title>pie as an agent OS</title><style>body{font:16px/1.55 -apple-system,Helvetica Neue,sans-serif;max-width:1000px;margin:40px auto;padding:0 16px;color:#111;background:#fcfcfb}
+table{border-collapse:collapse;margin:12px 0;font-size:14px}th,td{border:1px solid #ddd;padding:5px 9px;text-align:left;vertical-align:top}th{background:#f2f2ef}
+code,pre{background:#f2f2ef;border-radius:4px}pre{padding:10px;overflow-x:auto}code{padding:1px 4px}img{max-width:100%}h2{margin-top:2em}</style><h1>pie as an operating system for agents</h1>
+<h2>The idea</h2>
+<p>An operating system lets many programs share one CPU: it switches between them, pages idle ones out of memory, lets them fork, share memory and talk through pipes. pie does the same for AI agents on one GPU. Each agent is a process with its own memory (its KV cache), and the engine gives agents the system calls an OS gives programs.</p>
+<p>Systems that improve themselves run armies of specialist agents that fork to try ideas, report to each other, undo failed attempts and wait on tools. Engines built for one chat at a time (Ollama, llama.cpp) cannot do these things inside the engine, so every one of them costs a full re-read of the agent's context.</p>
+<p><img alt="Results" src="agent-os.png" /></p>
+<h2>OS features mapped onto pie</h2>
+<table>
+<thead>
+<tr>
+<th>OS feature</th>
+<th>In pie</th>
+<th>Where it lives</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Process</td>
+<td>An agent: a live program with its own KV cache and recurrent state</td>
+<td>pie (existing)</td>
+</tr>
+<tr>
+<td>Swap</td>
+<td>Idle agents parked on SSD, restored when their tool returns</td>
+<td>Engine branch <code>feat/idle-agent-eviction</code></td>
+</tr>
+<tr>
+<td><code>fork()</code> with copy-on-write</td>
+<td>A new agent shares every page of its parent; nothing is re-read</td>
+<td>pie (existing), used by the team program</td>
+</tr>
+<tr>
+<td>Shared memory / shared libraries</td>
+<td>A common prompt is read once; other agents map it, named by a hash of its content, every 1,024 tokens</td>
+<td>Private: <code>session/</code>, <code>serve.py</code></td>
+</tr>
+<tr>
+<td>Pipes</td>
+<td>One agent's output goes into another's memory, token for token, inside the engine</td>
+<td>In one process: private <code>team/</code>. Between processes: engine branch <code>feat/agent-pipes</code> (<code>send-to</code>)</td>
+</tr>
+<tr>
+<td><code>kill</code> and signals</td>
+<td>Stop an agent mid-answer; its GPU time goes to the others</td>
+<td>Private: <code>team/</code></td>
+</tr>
+<tr>
+<td>Checkpoint and rollback</td>
+<td>Save an agent as a named fork; put it back exactly as it was</td>
+<td>Private: <code>team/</code></td>
+</tr>
+<tr>
+<td>Readahead</td>
+<td>Restore a parked agent just before its tool returns</td>
+<td>Engine branch <code>feat/agent-prefetch</code></td>
+</tr>
+</tbody>
+</table>
+<p>Engine branches are stacked on current main: <code>feat/idle-agent-eviction</code> (2 commits), then <code>feat/agent-prefetch</code>, then <code>feat/agent-pipes</code>. They are not pushed yet. The agent programs and harnesses (<code>team/</code>, <code>session/</code>, <code>serve.py</code>) are private, in the local repo at <code>~/pie-agents</code>.</p>
+<h2>Results</h2>
+<p>Setup: M5 Max with 48 GB, Qwen3.8-27B 4-bit, contexts of 6,000–8,000 tokens. One run each. llama.cpp is tuned with one slot per agent, its best setting for these workloads.</p>
+<table>
+<thead>
+<tr>
+<th>Workload</th>
+<th>What the agents do</th>
+<th>pie</th>
+<th>llama.cpp tuned</th>
+<th>pie faster by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Search</td>
+<td>Fork 4 branches from an agent holding a notebook; the first branch to answer YES wins, the rest are killed</td>
+<td>0.66 s to answer</td>
+<td>57.4 s</td>
+<td><strong>87x</strong></td>
+</tr>
+<tr>
+<td>Team of 8</td>
+<td>A coordinator reads a notebook and forks 8 specialists; each makes 4 tool calls per round; reports are piped up and a summary is piped back; 2 rounds</td>
+<td>61 s</td>
+<td>1,334 s</td>
+<td><strong>22x</strong></td>
+</tr>
+<tr>
+<td>Army of 8</td>
+<td>8 agents with OpenCode-style 8,000-token system prompts that differ only near the end; 5 turns each</td>
+<td>46.7 s</td>
+<td>153.7 s</td>
+<td><strong>3.3x</strong></td>
+</tr>
+<tr>
+<td>Team of 4</td>
+<td>As above, 4 specialists</td>
+<td>49.0 s</td>
+<td>144.7 s</td>
+<td>3.0x</td>
+</tr>
+<tr>
+<td>Army of 4</td>
+<td>As above, 4 agents</td>
+<td>24.7 s</td>
+<td>68.1 s</td>
+<td>2.8x</td>
+</tr>
+<tr>
+<td>Undo</td>
+<td>4 agents; at every step each tries a tool action that fails, rolls back and retries</td>
+<td>32.2 s</td>
+<td>85.1 s</td>
+<td>2.6x</td>
+</tr>
+</tbody>
+</table>
+<p>What the co-design adds on pie itself (pie as an agent OS, against the same engine used as a plain API where every agent reads everything itself and talks through the client):</p>
+<table>
+<thead>
+<tr>
+<th>Workload</th>
+<th>pie as agent OS</th>
+<th>pie as plain API</th>
+<th>Gain</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Search, 4 branches</td>
+<td>0.66 s</td>
+<td>53.9 s</td>
+<td>82x</td>
+</tr>
+<tr>
+<td>Undo, 4 agents</td>
+<td>32.2 s</td>
+<td>242.1 s</td>
+<td>7.5x</td>
+</tr>
+<tr>
+<td>Army of 8</td>
+<td>46.7 s</td>
+<td>124.1 s</td>
+<td>2.7x</td>
+</tr>
+<tr>
+<td>Team of 4</td>
+<td>49.0 s</td>
+<td>97.9 s</td>
+<td>2.0x</td>
+</tr>
+</tbody>
+</table>
+<p>Two of the mechanisms behind these numbers:
+- <strong>Starting a forked team.</strong> 8 specialists started in 1.7–2.2 s on pie, against 101 s on llama.cpp, which re-reads the notebook once per specialist.
+- <strong>Mapping a shared prompt.</strong> A new agent mapped a 10,300-token shared prompt in 0.45 s, against 17–27 s to read it.</p>
+<h2>Where pie does not win, and what is unfinished</h2>
+<ul>
+<li><strong>Ollama is good at search.</strong> It serves this model one request at a time, so all branches share the parent's prompt as a prefix, which its prompt cache handles. pie is 1.6x faster there (0.66 s against 1.05 s), not 87x. Its weakness is many agents with different contexts; the tool-loop study measured it at 14–22x slower than pie there.</li>
+<li><strong>Prefetch gives no measurable gain.</strong> On the default pool, 8 agents finished in 45–47 s with or without it, and only the slowest 10% of steps improved (4.9 s to 4.4 s). A restore from SSD already takes only about 0.15 s. The first version deadlocked with 8 agents; the fixed version only queues the restore and never pins memory.</li>
+<li><strong>Pipes between processes are built and checked, not benchmarked.</strong> One process sent another a message inside the engine, and a send to another client's process was refused. Within the team program, pipes are part of every team result above.</li>
+<li><strong>llama.cpp failed search with 8 branches</strong> (internal server error), so there is no 8-branch comparison.</li>
+<li><strong>The llama.cpp team-of-8 row (1,334 s)</strong> comes from the run before the prompts started each answer with "The code word is". That run already scored 64 of 64; the other team rows use the final prompts.</li>
+<li><strong>Scope.</strong></li>
+<li>Every result is one run on one machine with one dense model.</li>
+<li>The army is OpenCode-shaped, not OpenCode itself: OpenCode's background service blocked when several copies ran at once.</li>
+<li><strong>Answer quality is the same on every engine.</strong> Team 31–32 of 32, undo 16 of 16, search 2 of 3 everywhere; in the search misses, the model wrote something other than YES or NO.</li>
+</ul>
+<h2>Not built yet</h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Why not yet</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Compressed swap (KV stored at 8 or 4 bits on SSD)</td>
+<td>Large engine change; restores are already fast</td>
+</tr>
+<tr>
+<td>Partial paging (only an agent's old context leaves the GPU)</td>
+<td>Large planner change</td>
+</tr>
+<tr>
+<td>Agents that survive an engine restart</td>
+<td>Medium; not a speed gain</td>
+</tr>
+<tr>
+<td>Per-agent memory quotas</td>
+<td>Fairness feature, not speed</td>
+</tr>
+<tr>
+<td>Priorities for the critical path</td>
+<td>Medium; small expected gain at these sizes</td>
+</tr>
+<tr>
+<td>Reusing a document read at a different position</td>
+<td>Exact reuse is impossible: KV depends on everything before it. Approximate methods (CacheBlend-style) cost accuracy</td>
+</tr>
+</tbody>
+</table>
+<h2>Reproduce</h2>
+<pre><code>cd ~/pie-agents
+uv run --project pie/python/client python team.py team --specialists 8       # also: separate, llama, ollama
+uv run --project pie/python/client python os_bench.py search team --branches 4
+uv run --project pie/python/client python os_bench.py undo team --agents 4
+./oc_serve.sh &amp;&amp; uv run python army.py pie --agents 8                         # ./oc_serve.sh --no-share for the baseline
+uv run python army.py llama --agents 8
+uv run --with matplotlib python os_plot.py                                    # agent-os.png
+</code></pre>
+<p>Results land in <code>team.jsonl</code>, <code>os.jsonl</code> and <code>army.jsonl</code>.</p>

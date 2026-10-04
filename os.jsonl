@@ -1,0 +1,8 @@
+{"scenario": "search", "engine": "team", "context_tokens": 6000, "branches": 4, "read_s": 11.9, "total_s": 13.9, "found_s": 0.66, "found_each_s": [0.7, 0.7, 0.6], "correct": "2/3", "system_growth_gb": 30.8}
+{"scenario": "search", "engine": "team", "context_tokens": 6000, "branches": 8, "read_s": 10.4, "total_s": 13.9, "found_s": 1.11, "found_each_s": [1.2, 1.1, 1.1], "correct": "2/3", "system_growth_gb": 30.5}
+{"scenario": "search", "engine": "separate", "context_tokens": 6000, "branches": 4, "read_s": 11.5, "total_s": 172.1, "found_s": 53.91, "found_each_s": [48.4, 58.2, 53.9], "correct": "2/3", "system_growth_gb": 31.4}
+{"scenario": "search", "engine": "llama", "context_tokens": 6000, "branches": 4, "read_s": 11.8, "total_s": 184.0, "found_s": 57.4, "found_each_s": [56.8, 58.0, 57.4], "correct": "2/3", "system_growth_gb": 38.2}
+{"scenario": "search", "engine": "ollama", "context_tokens": 6000, "branches": 4, "read_s": 12.3, "total_s": 15.5, "found_s": 1.05, "found_each_s": [1.4, 0.7, 1.1], "correct": "2/3", "system_growth_gb": 20.3}
+{"scenario": "undo", "engine": "team", "context_tokens": 6000, "agents": 4, "ready_s": 12.5, "total_s": 32.2, "step_s": 2.92, "correct": "16/16", "system_growth_gb": 31.0}
+{"scenario": "undo", "engine": "separate", "context_tokens": 6000, "agents": 4, "ready_s": 47.7, "total_s": 242.1, "step_s": 47.63, "correct": "16/16", "system_growth_gb": 31.5}
+{"scenario": "undo", "engine": "llama", "context_tokens": 6000, "agents": 4, "ready_s": 57.6, "total_s": 85.1, "step_s": 4.96, "correct": "16/16", "system_growth_gb": 38.2}

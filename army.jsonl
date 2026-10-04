@@ -1,0 +1,6 @@
+{"engine": "pie", "variant": "shared", "agents": 4, "prompt_tokens": 8000, "turns": 5, "total_s": 24.7, "first_reply_s": 14.1, "first_reply_max_s": 14.1, "turn_s": 2.69}
+{"engine": "pie", "variant": "no-share", "agents": 4, "prompt_tokens": 8000, "turns": 5, "total_s": 47.7, "first_reply_s": 36.7, "first_reply_max_s": 36.8, "turn_s": 2.77}
+{"engine": "llama", "variant": "default", "agents": 4, "prompt_tokens": 8000, "turns": 5, "total_s": 68.1, "first_reply_s": 44.8, "first_reply_max_s": 46.3, "turn_s": 6.12}
+{"engine": "pie", "variant": "shared", "agents": 8, "prompt_tokens": 8000, "turns": 5, "total_s": 46.7, "first_reply_s": 25.1, "first_reply_max_s": 26.0, "turn_s": 5.44}
+{"engine": "pie", "variant": "no-share", "agents": 8, "prompt_tokens": 8000, "turns": 5, "total_s": 124.1, "first_reply_s": 71.4, "first_reply_max_s": 119.4, "turn_s": 3.23}
+{"engine": "llama", "variant": "default", "agents": 8, "prompt_tokens": 8000, "turns": 5, "total_s": 153.7, "first_reply_s": 102.5, "first_reply_max_s": 106.9, "turn_s": 12.98}
