@@ -1,0 +1,24 @@
+# pie for the branch-and-prune agent: 16 attempts at once (8 tasks x 2).
+[server]
+host = "127.0.0.1"
+port = 8097
+
+[model]
+name = "default"
+model = "mlx-community/Qwen3.8-27B-4bit"
+host_kv_budget = "64MiB"    # RAM for one parked agent's recurrent state rows
+disk_kv_budget = "32GiB"    # everything else parks on the SSD
+
+[engine]
+type = "metal"
+device = ["metal:0"]
+activation_dtype = "bfloat16"
+kv_page_size = 32
+total_pages = 1024           # 2 GiB of bf16 KV; state slots get the rest
+max_forward_tokens = 2048
+max_forward_requests = 8    # lanes one batch may carry
+max_model_len = 65536
+max_state_slots = 32        # 16 attempts firing on a fork (two each)
+
+[runtime]
+max_concurrent_processes = 64   # agents alive at once; only one fires at a time here

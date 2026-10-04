@@ -1,0 +1,139 @@
+<!doctype html><meta charset=utf-8><title>SWE-bench: pie vs llama.cpp</title><style>body{font:16px/1.55 -apple-system,Helvetica Neue,sans-serif;max-width:1000px;margin:40px auto;padding:0 16px;color:#111;background:#fcfcfb}
+table{border-collapse:collapse;margin:12px 0;font-size:14px}th,td{border:1px solid #ddd;padding:5px 9px;text-align:left;vertical-align:top}th{background:#f2f2ef}
+code,pre{background:#f2f2ef;border-radius:4px}pre{padding:10px;overflow-x:auto}code{padding:1px 4px}img{max-width:100%}h2{margin-top:2em}</style><h1>Many coding agents on one laptop: SWE-bench Verified on pie vs llama.cpp</h1>
+<h2>Summary</h2>
+<p>Eight coding agents ran at once on one MacBook (M5 Max, 48 GB), each fixing a real GitHub issue from SWE-bench Verified, scored by the official SWE-bench harness. Same model (Qwen3.8-27B, 4-bit), same agent (mini-swe-agent), same 16 tasks.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>pie</th>
+<th>llama.cpp</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Issues solved (official scoring)</td>
+<td><strong>12 of 16</strong></td>
+<td>12 of 16</td>
+</tr>
+<tr>
+<td>Time for the batch</td>
+<td><strong>34 min, all 16 finished</strong></td>
+<td>2 h 16 min, 3 still unfinished, then stopped</td>
+</tr>
+<tr>
+<td>Median time per finished task</td>
+<td><strong>445 s</strong></td>
+<td>926 s</td>
+</tr>
+<tr>
+<td>Time per agent step</td>
+<td><strong>~22 s</strong></td>
+<td>~68 s</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Same quality, at least 4x faster.</strong> llama.cpp had not finished when stopped at 4x pie's total time, so 4x is a floor.</p>
+<p><img alt="Results" src="swe.png" /></p>
+<p><strong>The co-designed agent did not help on this benchmark.</strong> pie-code with branch and prune (2 forked attempts per task, first submitted patch wins, the other killed) also solved 12 of 16, but took 67 minutes against plain pie's 34:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>pie, plain (8 agents)</th>
+<th>pie, branch and prune (8 tasks x 2 attempts)</th>
+<th>llama.cpp (8 agents)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Solved</td>
+<td>12 / 16</td>
+<td>12 / 16</td>
+<td>12 / 16</td>
+</tr>
+<tr>
+<td>Time</td>
+<td><strong>34 min</strong></td>
+<td>67 min (incl. a 15-min stall on the last 2 tasks)</td>
+<td>136+ min, unfinished</td>
+</tr>
+</tbody>
+</table>
+<p>On a memory-bound machine a second attempt per task halves the tasks that progress at once and squeezes the KV pool. Pruning worked (losers stopped within about 20 s of the winner) and the attempts shared their prompt (the second mapped 2,048 tokens instead of reading them), but these tasks are easy enough that one attempt usually succeeds, so a second buys nothing.</p>
+<h2>The setup</h2>
+<ul>
+<li><strong>Tasks:</strong> 16 SWE-bench Verified tasks rated "under 15 minutes to fix", spread over 11 repositories (astropy, django, matplotlib, flask, requests, xarray, pylint, pytest, scikit-learn, sphinx, sympy). Each agent runs in that task's official Docker image; on Apple Silicon the x86 images run under emulation, the same for both engines.</li>
+<li><strong>Agent:</strong> mini-swe-agent 2.4.6, text-based (one bash command per reply), 40-step limit, temperature 0, thinking off. This model scores 86% on the SWE-bench Verified leaderboard with it.</li>
+<li><strong>Concurrency:</strong> 8 agents at once; a new task starts when one finishes.</li>
+<li><strong>Scoring:</strong> the official SWE-bench harness (5.0.2) runs each task's hidden tests against the agent's patch.</li>
+<li><strong>Equal memory:</strong> about 24 GB of GPU memory per engine.</li>
+<li>llama.cpp: one slot per agent (8 × 32k tokens) with 8-bit KV, its standard memory-saving option.</li>
+<li>pie: 16-bit KV (the only build of this model it has), a 1,536-page pool (49k tokens) plus 20 recurrent-state slots; agents that do not fit are parked on SSD.</li>
+<li>The agents reach pie through our OpenAI-compatible proxy (<code>serve.py</code>): one live pie session per agent, which keeps the agent's memory between steps.</li>
+</ul>
+<h2>Why pie is faster</h2>
+<ul>
+<li><strong>pie never re-reads an agent's history.</strong> Each agent is a live session that keeps its KV between steps; a step only reads the new tool output. Over the run pie reused 3.76M tokens from memory and read only 0.23M fresh: 94% of the reading avoided. Median time to a reply was 11.7 s with 8 agents active.</li>
+<li><strong>llama.cpp keeps re-reading.</strong> This model mixes attention with recurrent layers, so llama.cpp saves and restores whole agent states through its RAM prompt cache, about 5 GB each. Its log shows the cache constantly evicting them (<code>making room for prompt cache entry, removing oldest entry (size = 5153 MiB)</code>), after which an agent's whole history must be read again. Its slowest task took 93 minutes.</li>
+</ul>
+<h2>What broke overnight, and what was fixed</h2>
+<p>The first attempts ran 16 agents at once and failed. Each failure is a real finding:</p>
+<table>
+<thead>
+<tr>
+<th>Problem</th>
+<th>Cause</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Agents duplicated themselves</td>
+<td>mini-swe-agent's client timed out after 600 s and retried, starting a second session for the same agent</td>
+<td>Client timeout 1 h, no retries (both engines)</td>
+</tr>
+<tr>
+<td>16 agents starved</td>
+<td>pie's default KV pool is 1,024 pages (32k tokens) for 16 agents of 10-20k tokens each: 13 of 16 parked, restores queued</td>
+<td>Pool sized explicitly</td>
+</tr>
+<tr>
+<td>GPU out of memory mid-run at 16 agents</td>
+<td>GPU memory on a Mac is shared with Docker's VM, which grows as 16 containers run test suites; pools that pass pie's boot check fail 20 minutes later</td>
+<td>8 agents at once on both engines, equal memory</td>
+</tr>
+<tr>
+<td>New tasks never started (B8, first try)</td>
+<td>The proxy never closed finished conversations, and pie's planner does not admit a new process while an older one is preempted, so 6 new sessions waited forever</td>
+<td>The proxy keeps at most agents + 2 sessions, closing the oldest idle one. The engine side is open (see below)</td>
+</tr>
+<tr>
+<td>Scoring crashed</td>
+<td>swebench 5.0.2 needs the <code>SWE-bench/SWE-bench_Verified</code> dataset, which carries image and eval-script fields</td>
+<td>Switched datasets</td>
+</tr>
+</tbody>
+</table>
+<p>Also found: pie's <code>[engine] gpu_mem_utilization</code> is read at boot but a later memory check uses the default 0.9.</p>
+<h2>Caveats</h2>
+<ul>
+<li>One run per engine, 16 easy tasks. Solve rates of 12/16 are not distinguishable from each other; the claim is equal quality, not better quality.</li>
+<li>The engines run different 4-bit builds (MLX for pie, GGUF Q4_K_M for llama.cpp). Agents on pie took more steps per task (median 27 vs 19), so the per-task speedup (2.1x) is smaller than the per-step one (3x).</li>
+<li>pie's KV is 16-bit and llama.cpp's 8-bit, so per token pie holds half as much in the same memory. An 8-bit build of the model for pie would raise its capacity; it was not available.</li>
+<li>llama.cpp was stopped at 2 h 16 min with 3 tasks unfinished; they count as unsolved. Its true batch time is longer than reported.</li>
+<li>16 agents at once could not be run reliably on this 48 GB Mac with 16 containers, on pie (GPU out of memory) or llama.cpp (system memory pressure). 8 is the number this machine sustains.</li>
+</ul>
+<h2>Open engine work</h2>
+<ol>
+<li><strong>Admission behind preempted idle processes.</strong> A new process waits while any older process is preempted. Sessions that will never run again (a finished agent) can block new ones indefinitely. The planner should not hold admission for processes that are idle, or should evict them.</li>
+<li><strong><code>gpu_mem_utilization</code> ignored by the second memory check.</strong></li>
+<li><strong>Batch working memory is not counted</strong> when sizing the pool, so a pool that passes the boot check can run the GPU out of memory under load.</li>
+<li><strong>An 8-bit-KV build</strong> of this model would double the agents pie keeps resident.</li>
+</ol>
+<h2>Earlier results this complements</h2>
+<ul>
+<li>Tool-loop and team benchmarks (<code>TOOL-LOOP.md</code>, <code>AGENT-OS.md</code>): 16 agents with long private contexts, 18-20x faster than Ollama and tuned llama.cpp; fork-based teams 22x and branch search 87x faster than llama.cpp.</li>
+<li>Real OpenCode through the proxy: one agent fixed a bug in 24.5 s on pie (21.5 s on llama.cpp). With 8 agents, llama.cpp took 280 s; pie runs above 2 agents could not be completed because OpenCode's own server wedged under concurrency. Shared prompts worked on OpenCode's real prompts: new agents mapped 8,192-8,352 of 8,399 tokens instead of reading them.</li>
+</ul>

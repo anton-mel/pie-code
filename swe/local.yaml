@@ -1,0 +1,16 @@
+# mini-swe-agent on a local OpenAI-compatible endpoint (pie's proxy, llama-server or Ollama).
+agent:
+  step_limit: 40
+  cost_limit: 0
+model:
+  model_class: litellm_textbased
+  model_name: openai/local
+  cost_tracking: ignore_errors
+  model_kwargs:
+    api_base: http://127.0.0.1:8100/v1
+    api_key: local
+    temperature: 0
+    max_tokens: 2048
+    drop_params: true
+    timeout: 3600      # a reply can wait behind 15 other agents; never time out and retry
+    num_retries: 0
