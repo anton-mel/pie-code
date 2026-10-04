@@ -1,0 +1,4 @@
+{"engine": "ollama", "agents": 2, "context_tokens": 6000, "launch_ttft_s": 12.56, "switch_ttft_s": 0.424, "switch_ttft_max_s": 0.44, "correct": "4/4", "peak_footprint_gb": 6.37, "system_growth_gb": 23.33, "ollama_reported_gb": 16.96, "on_gpu_gb": 16.96}
+{"engine": "ollama", "agents": 4, "context_tokens": 6000, "launch_ttft_s": 12.29, "switch_ttft_s": 0.441, "switch_ttft_max_s": 0.463, "correct": "8/8", "peak_footprint_gb": 12.0, "system_growth_gb": 27.65, "ollama_reported_gb": 16.96, "on_gpu_gb": 16.96}
+{"engine": "pie", "agents": 6, "context_tokens": 6000, "launch_ttft_s": 31.2, "switch_ttft_s": 0.44, "switch_ttft_max_s": 0.451, "correct": "18/18", "evictions": 23, "restores": 18, "disk_w_pages": 4449, "disk_r_pages": 3474, "disk_w_ms": 1061, "disk_r_ms": 3668}
+{"engine": "pie", "stalled": "no reply in 90 s", "agents_launched": 1}

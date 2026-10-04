@@ -1,0 +1,4 @@
+{"engine": "pie", "agents": 1, "total_s": 24.5, "agent_s": [24.5], "fixed": "1/1"}
+{"engine": "pie", "agents": 4, "total_s": 1781.8, "agent_s": [1781.8, 1781.7, 1781.7, 1781.7], "fixed": "0/4"}
+{"engine": "pie", "agents": 2, "total_s": 46.9, "agent_s": [46.8, 46.2], "fixed": "2/2"}
+{"engine": "pie", "agents": 2, "total_s": 1118.8, "agent_s": [1118.8, 1118.8], "fixed": "0/2"}

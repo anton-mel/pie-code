@@ -1,0 +1,14 @@
+pie/
+pie-mpp/
+pie-kv/
+target/
+oc-runs/
+oc-demo/opencode.json
+.oc/
+*.log
+*.out
+prompt-*.txt
+__pycache__/
+.bench-running
+.mem-running
+quality-*.json

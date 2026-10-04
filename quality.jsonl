@@ -1,0 +1,6 @@
+{"build": "old", "task": "gsm8k", "n": 100, "correct": 85.0, "score": 0.85, "ci95": [0.767, 0.907], "empty": 0, "minutes": 7.0}
+{"build": "old", "task": "arc", "n": 100, "correct": 92.0, "score": 0.92, "ci95": [0.85, 0.959], "empty": 0, "minutes": 6.2}
+{"build": "new", "task": "gsm8k", "n": 100, "correct": 84.0, "score": 0.84, "ci95": [0.756, 0.899], "empty": 0, "minutes": 5.7}
+{"build": "new", "task": "arc", "n": 100, "correct": 92.0, "score": 0.92, "ci95": [0.85, 0.959], "empty": 0, "minutes": 4.4}
+{"build": "staged", "task": "arc", "n": 100, "correct": 92.0, "score": 0.92, "ci95": [0.85, 0.959], "empty": 0, "minutes": 4.1}
+{"build": "staged", "task": "gsm8k", "n": 100, "correct": 86.0, "score": 0.86, "ci95": [0.779, 0.915], "empty": 0, "minutes": 5.5}

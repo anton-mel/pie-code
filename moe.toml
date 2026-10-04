@@ -1,0 +1,21 @@
+# The 35B mixture-of-experts model, whole on the device.
+[server]
+host = "127.0.0.1"
+port = 8097
+
+[model]
+name = "default"
+model = "mlx-community/Qwen3.6-35B-A3B-4bit"
+
+[engine]
+type = "metal"
+device = ["metal:0"]
+activation_dtype = "bfloat16"
+gpu_mem_utilization = 0.97
+kv_page_size = 32
+total_pages = 256
+max_forward_tokens = 2048
+max_forward_requests = 2
+max_model_len = 8192
+max_state_slots = 4
+diagnostics = "kernel-profile=1"

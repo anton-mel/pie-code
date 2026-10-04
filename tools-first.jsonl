@@ -1,0 +1,10 @@
+{"engine": "pie", "agents": 1, "context_tokens": 6000, "steps": 6, "tool_s": 2.0, "read_s": 16.3, "loop_s": 19.0, "step_s": 0.96, "step_p90_s": 2.56, "correct": "6/6"}
+{"engine": "pie", "agents": 2, "context_tokens": 6000, "steps": 6, "tool_s": 2.0, "read_s": 26.5, "loop_s": 19.6, "step_s": 1.17, "step_p90_s": 1.27, "correct": "12/12"}
+{"engine": "pie", "agents": 4, "context_tokens": 6000, "steps": 6, "tool_s": 2.0, "read_s": 49.1, "loop_s": 34.9, "step_s": 1.33, "step_p90_s": 2.43, "correct": "24/24"}
+{"engine": "pie", "agents": 8, "context_tokens": 6000, "steps": 6, "tool_s": 2.0, "read_s": 98.2, "loop_s": 59.4, "step_s": 1.36, "step_p90_s": 15.67, "correct": "48/48"}
+{"engine": "pie", "agents": 16, "context_tokens": 6000, "steps": 6, "tool_s": 2.0, "read_s": 204.7, "loop_s": 107.1, "step_s": 1.5, "step_p90_s": 23.84, "correct": "91/96"}
+{"engine": "ollama", "agents": 1, "context_tokens": 6000, "steps": 6, "tool_s": 2.0, "read_s": 16.3, "loop_s": 16.8, "step_s": 0.8, "step_p90_s": 0.91, "correct": "6/6"}
+{"engine": "ollama", "agents": 2, "context_tokens": 6000, "steps": 6, "tool_s": 2.0, "read_s": 28.0, "loop_s": 18.6, "step_s": 0.96, "step_p90_s": 1.16, "correct": "12/12"}
+{"engine": "ollama", "agents": 4, "context_tokens": 6000, "steps": 6, "tool_s": 2.0, "read_s": 54.4, "loop_s": 87.1, "step_s": 3.42, "step_p90_s": 32.03, "correct": "24/24"}
+{"engine": "ollama", "agents": 8, "context_tokens": 6000, "steps": 6, "tool_s": 2.0, "read_s": 119.8, "loop_s": 563.7, "step_s": 93.09, "step_p90_s": 113.31, "correct": "48/48"}
+{"engine": "ollama", "agents": 16, "context_tokens": 6000, "steps": 6, "tool_s": 2.0, "read_s": 238.4, "loop_s": 1544.7, "step_s": 249.39, "step_p90_s": 265.1, "correct": "96/96"}

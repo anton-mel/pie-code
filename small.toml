@@ -1,0 +1,24 @@
+# One 27B model, a device KV pool that holds a single agent, and swap below it.
+[server]
+host = "127.0.0.1"
+port = 8097
+
+[model]
+name = "default"
+model = "Qwen/Qwen3.5-0.8B"
+host_kv_budget = "64MiB"    # RAM for one parked agent's recurrent state rows
+disk_kv_budget = "8GiB"     # everything else parks on the SSD
+
+[engine]
+type = "metal"
+device = ["metal:0"]
+activation_dtype = "bfloat16"
+kv_page_size = 32
+total_pages = 32
+max_forward_tokens = 2048
+max_forward_requests = 4
+max_model_len = 1024
+max_state_slots = 32
+
+[runtime]
+max_concurrent_processes = 64

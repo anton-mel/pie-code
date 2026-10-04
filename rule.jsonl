@@ -1,0 +1,2 @@
+{"engine": "pie", "rows": [{"context": 0, "rule": false, "ms_per_token": 31.3}, {"context": 0, "rule": true, "ms_per_token": 32.9}, {"context": 6000, "rule": false, "ms_per_token": 33.5}, {"context": 6000, "rule": true, "ms_per_token": 33.6}]}
+{"engine": "ollama", "rows": [{"context": 0, "rule": false, "ms_per_token": 30.1}, {"context": 0, "rule": true, "ms_per_token": 44.4}, {"context": 6000, "rule": false, "ms_per_token": 23.8}, {"context": 6000, "rule": true, "ms_per_token": 54.9}]}

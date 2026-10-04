@@ -1,0 +1,12 @@
+{"label": "dense-before", "ttft_s": [8.181, 8.777, 8.719]}
+{"label": "dense-after", "ttft_s": [8.537, 8.633, 8.551]}
+{"label": "dense-before", "ttft_s": [8.562, 8.759, 8.741]}
+{"label": "dense-after", "ttft_s": [8.151, 8.406, 8.516]}
+{"label": "dense-before", "ttft_s": [9.092, 9.133, 9.207]}
+{"label": "dense-after", "ttft_s": [9.169, 9.166, 9.212]}
+{"label": "moe-before", "ttft_s": [1.944, 1.86, 1.868]}
+{"label": "moe-after", "ttft_s": [1.64, 1.599, 1.605]}
+{"label": "moe-before", "ttft_s": [1.849, 1.887, 1.822]}
+{"label": "moe-after", "ttft_s": [1.697, 1.627, 1.669]}
+{"label": "moe-before", "ttft_s": [1.93, 1.838, 1.85]}
+{"label": "moe-after", "ttft_s": [1.636, 1.598, 1.605]}

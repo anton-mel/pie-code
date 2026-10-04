@@ -1,0 +1,10 @@
+{"prompt": 570, "reused": 0, "mapped": 0, "missed": "kvrs", "read": 58, "made": 6, "ttft_s": 10.206, "engine_s": 23.24, "wall_s": 28.085, "calls": 0, "sessions": 4}
+{"prompt": 8399, "reused": 0, "mapped": 0, "missed": "kvrs", "read": 47, "made": 92, "ttft_s": 0.33, "engine_s": 3.993, "wall_s": 31.438, "calls": 2, "sessions": 4}
+{"prompt": 8399, "reused": 0, "mapped": 0, "missed": "kvrs", "read": 47, "made": 92, "ttft_s": 0.33, "engine_s": 4.096, "wall_s": 31.548, "calls": 2, "sessions": 4}
+{"prompt": 570, "reused": 0, "mapped": 512, "missed": "", "read": 58, "made": 6, "ttft_s": 10.203, "engine_s": 26.982, "wall_s": 31.829, "calls": 0, "sessions": 4}
+{"prompt": 8796, "reused": 8399, "mapped": 0, "missed": "kvrs", "read": 397, "made": 30, "ttft_s": 0.649, "engine_s": 2.574, "wall_s": 2.576, "calls": 1, "sessions": 4}
+{"prompt": 8796, "reused": 8399, "mapped": 0, "missed": "kvrs", "read": 397, "made": 30, "ttft_s": 1.296, "engine_s": 2.687, "wall_s": 2.688, "calls": 1, "sessions": 4}
+{"prompt": 8950, "reused": 8796, "mapped": 0, "missed": "kvrs", "read": 154, "made": 94, "ttft_s": 0.267, "engine_s": 4.195, "wall_s": 4.196, "calls": 1, "sessions": 4}
+{"prompt": 8950, "reused": 8796, "mapped": 0, "missed": "kvrs", "read": 154, "made": 94, "ttft_s": 0.451, "engine_s": 4.243, "wall_s": 4.244, "calls": 1, "sessions": 4}
+{"prompt": 9068, "reused": 8950, "mapped": 0, "missed": "kvrs", "read": 118, "made": 30, "ttft_s": 0.397, "engine_s": 1.86, "wall_s": 1.862, "calls": 1, "sessions": 4}
+{"prompt": 9068, "reused": 8950, "mapped": 0, "missed": "kvrs", "read": 118, "made": 30, "ttft_s": 0.491, "engine_s": 1.891, "wall_s": 1.892, "calls": 1, "sessions": 4}

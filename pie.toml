@@ -1,0 +1,24 @@
+# One 27B model, a device KV pool that holds a single agent, and swap below it.
+[server]
+host = "127.0.0.1"
+port = 8097
+
+[model]
+name = "default"
+model = "mlx-community/Qwen3.8-27B-4bit"
+host_kv_budget = "64MiB"    # RAM for one parked agent's recurrent state rows
+disk_kv_budget = "16GiB"    # everything else parks on the SSD
+
+[engine]
+type = "metal"
+device = ["metal:0"]
+activation_dtype = "bfloat16"
+kv_page_size = 32
+total_pages = 256           # 8k tokens on the device: one agent
+max_forward_tokens = 2048
+max_forward_requests = 16   # lanes one batch may carry: forks of one agent decode together
+max_model_len = 8192
+max_state_slots = 64        # one recurrent-state slot stays on the device per live agent, two while it fires
+
+[runtime]
+max_concurrent_processes = 64   # agents alive at once; only one fires at a time here

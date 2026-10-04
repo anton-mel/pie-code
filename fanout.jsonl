@@ -1,0 +1,2 @@
+{"engine": "pie", "read_s": 37.51, "questions": [1, 2, 4, 8, 16], "seconds": [1.94, 2.79, 3.59, 6.73, 8.95], "correct": [1, 2, 4, 8, 16]}
+{"engine": "ollama", "read_s": 17.66, "questions": [1, 2, 4, 8, 16], "seconds": [1.56, 3.06, 5.74, 11.78, 22.89], "correct": [1, 2, 3, 7, 15]}
