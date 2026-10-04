@@ -5,15 +5,18 @@
 //! so the kept KV is exactly the conversation as the front end will send it
 //! back, and a recurrent state never has to be rewound.
 //!
-//! Shared memory: sessions that start with the same tokens (an agent app's
-//! system prompt and tools) read them once. The first publishes its KV and
-//! recurrent state at that point under a name (`share.key`); later ones map
-//! that snapshot copy-on-write, the cross-process twin of `fork`, and read
-//! only what follows.
+//! Shared memory by content: sessions that start with the same tokens (an
+//! agent app's system prompt and tools) read them once. Along its first
+//! message a session passes checkpoints, page-aligned positions named by a
+//! hash of every token before them; it maps the longest one already
+//! published, copy-on-write (the cross-process twin of `fork`), reads on from
+//! there, and publishes each later one as it passes it. Two prompts that part
+//! near their end still share everything before.
 //!
-//! Messages in: `{"tokens": [...], "max_tokens": n, "share": {"key", "at"}}`
-//! (tokens after those already read; `share` on the first only) or `"quit"`.
-//! Messages out: `{"text", "tokens", "fed", "mapped", "ttft_ms", "total_ms"}`.
+//! Messages in: `{"tokens": [...], "max_tokens": n, "share": [{"key", "at"}]}`
+//! (tokens after those already read; `share` on the first only, ascending)
+//! or `"quit"`. Messages out: `{"published": key}` per checkpoint published,
+//! then `{"text", "tokens", "fed", "mapped", "ttft_ms", "total_ms"}`.
 
 use inferlet::chat;
 use inferlet::eta::hybrid::prelude::*;
@@ -26,11 +29,10 @@ struct Turn {
     #[serde(default = "default_max_tokens")]
     max_tokens: usize,
     #[serde(default)]
-    share: Option<Share>,
+    share: Vec<Share>,
 }
 
-/// The first `at` tokens (a whole number of pages) are common to many
-/// sessions and live under `key`.
+/// A checkpoint: the first `at` tokens (a whole number of pages), named `key`.
 #[derive(Deserialize)]
 struct Share {
     key: String,
@@ -221,36 +223,43 @@ async fn main(first: Turn) -> Result<String> {
     let mut turn = first;
     let mut mapped = 0u32;
     let mut missed = String::new();
-    if let Some(share) = turn.share.take()
-        && share.at % kv_page_size() == 0
-        && share.at > 0
-        && (share.at as usize) < turn.tokens.len()
-    {
-        let key = share.key.as_bytes();
+    let page = kv_page_size();
+    let points: Vec<Share> = std::mem::take(&mut turn.share)
+        .into_iter()
+        .filter(|p| p.at > 0 && p.at % page == 0 && (p.at as usize) < turn.tokens.len())
+        .collect();
+    // Map the longest checkpoint already published.
+    let mut from = 0usize;
+    for (i, point) in points.iter().enumerate().rev() {
+        let key = point.key.as_bytes();
         let kv = WorkingSet::from_index(key)?;
         let rs = if main.rs.is_empty() { Some(Vec::new()) } else { RsWorkingSet::from_index(key)?.map(|rs| vec![rs]) };
-        missed = format!("{}{}", if kv.is_none() { "kv" } else { "" }, if rs.is_none() { "rs" } else { "" });
         if let (Some(ws), Some(rs)) = (kv, rs) {
-            // Mapped: the shared tokens are already read.
-            main = Agent { ws, rs, len: share.at, penalty: None };
-            mapped = share.at;
-        } else {
-            // Read them, then publish them for the sessions after this one.
-            let read = Pipeline::new();
-            main.append(&read, &turn.tokens[..share.at as usize]).await?;
-            read.close();
-            let publish = Pipeline::new();
-            let pages = main.ws.slice(&publish, 0, share.at / kv_page_size())?;
-            let states = main.rs.iter().map(|rs| rs.fork(&publish)).collect::<Result<Vec<_>>>()?;
-            publish.close();
-            pages.update_index(key)?;
-            for state in &states {
-                state.update_index(key)?;
-            }
-            session::send(r#"{"published":true}"#);
+            main = Agent { ws, rs, len: point.at, penalty: None };
+            mapped = point.at;
+            from = i + 1;
+            break;
         }
-        turn.tokens.drain(..share.at as usize);
+        missed = point.key.clone();
     }
+    // Read on, publishing every later checkpoint as it is passed.
+    let mut at = mapped as usize;
+    for point in &points[from..] {
+        let read = Pipeline::new();
+        main.append(&read, &turn.tokens[at..point.at as usize]).await?;
+        read.close();
+        at = point.at as usize;
+        let publish = Pipeline::new();
+        let pages = main.ws.slice(&publish, 0, point.at / page)?;
+        let states = main.rs.iter().map(|rs| rs.fork(&publish)).collect::<Result<Vec<_>>>()?;
+        publish.close();
+        pages.update_index(point.key.as_bytes())?;
+        for state in &states {
+            state.update_index(point.key.as_bytes())?;
+        }
+        session::send(&format!(r#"{{"published":{}}}"#, inferlet::serde_json::to_string(&point.key).unwrap_or_default()));
+    }
+    turn.tokens.drain(..at);
     loop {
         let clock = std::time::Instant::now();
         let fed = turn.tokens.len();

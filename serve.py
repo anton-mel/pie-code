@@ -44,14 +44,14 @@ class Session:
         return await reply(self.process, timeout)
 
 
-async def reply(process, timeout: float, published=None) -> dict:
+async def reply(process, timeout: float, published: dict | None = None) -> dict:
     while True:
         event, value = await asyncio.wait_for(process.recv(), timeout)
         if event == Event.Message:
             message = json.loads(value)
-            if message.get("published"):
-                if published is not None:
-                    published.set()
+            if "published" in message:
+                if published and message["published"] in published:
+                    published[message["published"]].set()
                 continue
             return message
         if event in (Event.Error, Event.Return):
@@ -110,19 +110,22 @@ class Server:
         self.log = open(HERE / "serve.jsonl", "a")
         self.im_start = self.tokenizer.convert_tokens_to_ids("<|im_start|>")
         self.user = self.tokenizer.encode("user", add_special_tokens=False)[0]
-        self.shared: dict[str, asyncio.Event] = {}  # set once a session has published that key
+        self.shared: dict[str, asyncio.Event] = {}  # per checkpoint: set once a session has published it
 
-    def share(self, tokens: list[int]) -> dict | None:
-        """The page-aligned run of tokens before the first user turn: the app's system prompt
-        and tools, common to its sessions. Named by its hash."""
+    def share(self, tokens: list[int]) -> list[dict]:
+        """Checkpoints every `--share-every` tokens up to the first user turn, each named by a hash
+        of all tokens before it: prompts that part late still share every checkpoint before."""
         if self.args.no_share:
-            return None
+            return []
         start = next((i for i in range(len(tokens) - 1) if tokens[i] == self.im_start and tokens[i + 1] == self.user), 0)
-        at = start // self.args.page * self.args.page
-        if at < 256:
-            return None
-        key = "share." + hashlib.sha256(json.dumps(tokens[:at]).encode()).hexdigest()[:32]
-        return {"key": key, "at": at}
+        end = start // self.args.page * self.args.page
+        points = list(range(self.args.share_every, end, self.args.share_every)) + ([end] if end >= 256 else [])
+        digest, out, at = hashlib.sha256(), [], 0
+        for point in points:
+            digest.update(json.dumps(tokens[at:point]).encode())
+            at = point
+            out.append({"key": "share." + digest.copy().hexdigest()[:32], "at": point})
+        return out
 
     async def start(self):
         self.engine = subprocess.Popen([self.args.pie, "-c", HERE / self.args.config, "serve"],
@@ -164,22 +167,23 @@ class Server:
             reused = 0
             await self.retire()
             share = self.share(tokens)
-            published = None
-            if share is not None:
-                if share["key"] in self.shared:
-                    await self.shared[share["key"]].wait()  # mapped once its first reader publishes it
-                else:
-                    published = self.shared[share["key"]] = asyncio.Event()
+            # Wait for the longest checkpoint another session is still reading, then claim the rest.
+            known = [point for point in share if point["key"] in self.shared]
+            if known:
+                await self.shared[known[-1]["key"]].wait()
+            mine = {point["key"]: asyncio.Event() for point in share if point["key"] not in self.shared}
+            self.shared.update(mine)
             process = await self.client.launch_process(self.program, {"tokens": tokens, "max_tokens": limit, "share": share})
             session = Session(process)
             self.sessions.append(session)
             async with session.lock:
                 try:
-                    out = await reply(process, self.args.timeout, published)
+                    out = await reply(process, self.args.timeout, mine)
                 finally:
-                    if published is not None and not published.is_set():
-                        del self.shared[share["key"]]  # it never published; the next one reads and tries
-                        published.set()
+                    for key, event in mine.items():
+                        if not event.is_set():  # never published: the next one reads it and tries
+                            del self.shared[key]
+                            event.set()
         session.tokens, session.used = tokens, time.monotonic()
         prose, calls = parse(out["text"])
         stats = {"prompt": len(tokens), "reused": reused, "mapped": out.get("mapped", 0), "missed": out.get("missed", ""), "read": out["fed"], "made": out["tokens"],
@@ -259,6 +263,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-tokens", type=int, default=4096, help="cap on tokens per reply")
     parser.add_argument("--timeout", type=float, default=1800)
     parser.add_argument("--page", type=int, default=32, help="the engine's kv_page_size")
+    parser.add_argument("--share-every", type=int, default=1024, help="tokens between shared checkpoints")
     parser.add_argument("--no-share", action="store_true", help="read every system prompt, mapping none")
     parser.add_argument("--dump", action="store_true", help="write every rendered prompt to prompt-N.txt")
     asyncio.run(main(parser.parse_args()))
