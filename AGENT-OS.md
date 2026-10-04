@@ -49,6 +49,23 @@ Two of the mechanisms behind these numbers:
 - **Starting a forked team.** 8 specialists started in 1.7–2.2 s on pie, against 101 s on llama.cpp, which re-reads the notebook once per specialist.
 - **Mapping a shared prompt.** A new agent mapped a 10,300-token shared prompt in 0.45 s, against 17–27 s to read it.
 
+## Ranked by how hard the advantage is to copy
+
+The top rows are things llama.cpp and Ollama cannot do with any setting; the lower rows are gaps they could narrow by tuning or a feature update. The defensible claim is rows 1–3.
+
+| Rank | Workload | pie | Best competitor | pie faster by | Can they match it? |
+|---|---|---|---|---|---|
+| 1 | **Many agents, each with its own long context, calling tools** (16 agents × 6,000 tokens) | 1.4 min | Ollama 25.7 min; llama.cpp tuned 28.7 min | **18–20x** | **No.** Their saved states live in RAM and get evicted, so they re-read. pie parks agents on SSD and restores in 0.15 s. More RAM did not save llama.cpp: it ran out of memory |
+| 2 | **Longer contexts** (8 agents × 12,000 tokens) | 1.0 min | Ollama 22.4 min; llama.cpp 3.9 min | **22x / 3.9x** | **No.** Their re-read cost grows with context length; pie's does not |
+| 3 | **Team of 8 sharing one document** (fork, tools, reports) | 61 s | llama.cpp tuned 1,334 s | **22x** | **No.** Each slot re-reads the document, and its cache collapses past about 9 agents. pie's forks share the pages |
+| 4 | Branch search from one agent (4 branches) | 0.66 s | llama.cpp 57 s; **Ollama 1.05 s** | 87x / **1.6x** | **Partly.** Ollama's single slot reuses a shared prefix well; only the 1.6x is the honest number |
+| 5 | OpenCode-style army, shared 8,000-token prompt (8 agents) | 47 s | llama.cpp 154 s | 3.3x | **Probably, with work.** llama.cpp has a unified-KV option that could share prefixes across slots; untested |
+| 6 | Team of 4 | 49 s | llama.cpp 145 s | 3.0x | **Likely, by tuning.** 4 agents fit in its cache |
+| 7 | Undo failed steps (4 agents) | 32 s | llama.cpp 85 s | 2.6x | **Mostly.** Its prefix cache already handles rollback in a slot |
+| 8 | 1–2 agents | — | — | **None** | They are equal or slightly faster |
+
+Rows 1 and 2 come from the tool-loop study (`TOOL-LOOP.md`), with pie on its default GPU pool.
+
 ## Where pie does not win, and what is unfinished
 
 - **Ollama is good at search.** It serves this model one request at a time, so all branches share the parent's prompt as a prefix, which its prompt cache handles. pie is 1.6x faster there (0.66 s against 1.05 s), not 87x. Its weakness is many agents with different contexts; the tool-loop study measured it at 14–22x slower than pie there.
