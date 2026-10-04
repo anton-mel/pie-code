@@ -284,7 +284,7 @@ async def run(args, engine, peak: Peak):
             for step in range(args.steps):
                 index = round_ * args.steps + step
                 ask, answer = question(k, index)
-                text = user((tool_output(k, index - 1).strip() + "\n\n" if step else "") + ask)
+                text = user((tool_output(k, index - 1).strip() + "\n\n" if step else "") + ask) + "The code word is"
                 sent = time.monotonic()
                 said = await engine.send(k, text, 16)
                 steps.append(time.monotonic() - sent)
