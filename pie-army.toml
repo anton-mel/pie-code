@@ -1,7 +1,7 @@
 # pie for the agent army: Qwen3.8-27B, one process per question holding its whole team.
 [server]
 host = "127.0.0.1"
-port = 8097
+port = 8096
 
 [model]
 name = "default"
