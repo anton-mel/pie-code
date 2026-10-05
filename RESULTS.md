@@ -5,7 +5,7 @@
 | Engine · method | Solved | Total time | Mean per problem | Tokens written | Agents per problem |
 |---|---|---|---|---|---|
 | pie · single | **7 / 15** | 41 min | 162 s | 67,003 | 1.0 |
-| pie · vote | **1 / 1** | 2 min | 96 s | 10,000 | 8.0 |
+| pie · vote | **8 / 15** | 95 min | 378 s | 564,116 | 8.0 |
 | pie · team | **8 / 15** | 170 min | 680 s | 430,158 | 14.2 |
 | llama · single | **6 / 7** | 50 min | 427 s | 26,949 | 1.0 |
 | llama · team | **7 / 8** | 219 min | 1644 s | 163,783 | 15.5 |
