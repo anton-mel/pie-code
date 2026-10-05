@@ -11,8 +11,8 @@ for i in 1 2; do
 done
 # Shared prompts: an OpenCode-style army through the OpenAI-style proxy, and llama.cpp.
 for n in 4 8; do
-  ./oc_serve.sh && uv run -q python -u army.py pie --agents $n --variant shared 2>&1 | tail -1; clean
-  ./oc_serve.sh --no-share && uv run -q python -u army.py pie --agents $n --variant no-share 2>&1 | tail -1; clean
-  uv run -q python -u army.py llama --agents $n 2>&1 | tail -1; clean
+  ./oc_serve.sh && uv run -q python -u os_army.py pie --agents $n --variant shared 2>&1 | tail -1; clean
+  ./oc_serve.sh --no-share && uv run -q python -u os_army.py pie --agents $n --variant no-share 2>&1 | tail -1; clean
+  uv run -q python -u os_army.py llama --agents $n 2>&1 | tail -1; clean
 done
 rm -f .bench-running

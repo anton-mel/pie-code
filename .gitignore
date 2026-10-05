@@ -28,3 +28,10 @@ latentmas-ref/
 latent-runs/*.out
 explore-runs/
 .etude-test-done
+army-runs/*.out
+army-runs/*.done
+army-runs/last-ask.json
+pie-army.log
+llama-army.log
+pie-latent*.log
+pie-explore.log
