@@ -1,0 +1,23 @@
+# pie for LatentMAS: Qwen3.5-4B, many questions' teams at once, each a process with one context.
+[server]
+host = "127.0.0.1"
+port = 8099
+
+[model]
+name = "default"
+model = "Qwen/Qwen3-4B"
+sku = "qwen3-d4b-bf16-kv-bf16"
+
+[engine]
+type = "metal"
+device = ["metal:0"]
+activation_dtype = "bfloat16"
+kv_page_size = 32
+total_pages = 1536          # 49k tokens: plain Qwen3-4B holds 147 KiB of KV per token
+max_forward_tokens = 4096
+max_forward_requests = 32    # lanes one batch may carry
+max_model_len = 16384
+max_state_slots = 72
+
+[runtime]
+max_concurrent_processes = 128

@@ -1,0 +1,59 @@
+{
+ "prompt_tokens": 129,
+ "rows": [
+  {
+   "step": 0,
+   "cosine": 0.9998,
+   "pie_norm": 1.0974,
+   "hf_norm": 1.097
+  },
+  {
+   "step": 1,
+   "cosine": 0.9991,
+   "pie_norm": 1.0974,
+   "hf_norm": 1.0978
+  },
+  {
+   "step": 2,
+   "cosine": 0.998,
+   "pie_norm": 1.0974,
+   "hf_norm": 1.0976
+  },
+  {
+   "step": 3,
+   "cosine": 0.8112,
+   "pie_norm": 1.0974,
+   "hf_norm": 1.0975
+  },
+  {
+   "step": 4,
+   "cosine": 0.7396,
+   "pie_norm": 1.0974,
+   "hf_norm": 1.0977
+  },
+  {
+   "step": 5,
+   "cosine": 0.9847,
+   "pie_norm": 1.0974,
+   "hf_norm": 1.0974
+  },
+  {
+   "step": 6,
+   "cosine": 0.9326,
+   "pie_norm": 1.0974,
+   "hf_norm": 1.0967
+  },
+  {
+   "step": 7,
+   "cosine": 0.9313,
+   "pie_norm": 1.0974,
+   "hf_norm": 1.0984
+  },
+  {
+   "step": 8,
+   "cosine": 0.9388,
+   "pie_norm": 1.0974,
+   "hf_norm": 1.097
+  }
+ ]
+}

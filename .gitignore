@@ -23,3 +23,8 @@ swe/.venv/
 oc-runs/
 *-test.toml
 pool-*.toml
+latentmas-ref/
+*/target/
+latent-runs/*.out
+explore-runs/
+.etude-test-done
