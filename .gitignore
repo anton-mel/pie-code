@@ -12,3 +12,14 @@ __pycache__/
 .bench-running
 .mem-running
 quality-*.json
+pie-combined
+pie-debug
+pie-disk
+pie-fix-admission
+pie-pr820
+swe/logs/
+swe/runs/
+swe/.venv/
+oc-runs/
+*-test.toml
+pool-*.toml

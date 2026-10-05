@@ -2,3 +2,11 @@
 {"engine": "pie", "agents": 4, "total_s": 1781.8, "agent_s": [1781.8, 1781.7, 1781.7, 1781.7], "fixed": "0/4"}
 {"engine": "pie", "agents": 2, "total_s": 46.9, "agent_s": [46.8, 46.2], "fixed": "2/2"}
 {"engine": "pie", "agents": 2, "total_s": 1118.8, "agent_s": [1118.8, 1118.8], "fixed": "0/2"}
+{"engine": "pie", "agents": 2, "total_s": 40.3, "agent_s": [40.3, 35.0], "fixed": "2/2"}
+{"engine": "llama", "agents": 1, "total_s": 21.5, "agent_s": [21.5], "fixed": "1/1"}
+{"engine": "llama", "agents": 4, "total_s": 119.5, "agent_s": [118.5, 119.5, 119.0, 116.5], "fixed": "4/4"}
+{"engine": "llama", "agents": 2, "total_s": 6.8, "agent_s": [0.0, 0.0], "fixed": "0/2"}
+{"engine": "llama", "agents": 2, "total_s": 7.0, "agent_s": [0.1, 0.0], "fixed": "0/2"}
+{"engine": "llama", "agents": 2, "total_s": 6.8, "agent_s": [0.0, 0.0], "fixed": "0/2"}
+{"engine": "llama", "agents": 2, "total_s": 62.1, "agent_s": [54.4, 55.1], "fixed": "2/2"}
+{"engine": "llama", "agents": 8, "total_s": 280.4, "agent_s": [269.8, 218.2, 270.0, 188.0, 259.8, 231.3, 253.1, 253.7], "fixed": "8/8"}

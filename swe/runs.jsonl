@@ -1,0 +1,3 @@
+{"engine": "llama", "agents": 8, "wall_s": 8189, "note": "stopped at 2 h 16 min with 13 of 16 tasks finished; the 3 unfinished count as unsolved"}
+{"engine": "pie", "agents": 8, "wall_s": 2041}
+{"engine": "pie-code-bp", "agents": 16, "tasks_at_once": 8, "attempts": 2, "wall_s": 3993}

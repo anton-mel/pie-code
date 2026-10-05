@@ -6,9 +6,11 @@
 cd ${0:A:h}
 engine=$1; n=$2
 case $engine in
-  pie) url=http://127.0.0.1:8100/v1; model=pie-qwen3.8-27b; opts='{}' ;;
+  pie|pie-no-share) url=http://127.0.0.1:8100/v1; model=pie-qwen3.8-27b; opts='{}' ;;
   ollama) url=http://127.0.0.1:11500/v1; model=qwen3.8:27b; opts='{"reasoningEffort": "none"}' ;;
+  llama) url=http://127.0.0.1:8098/v1; model=qwen3.8-27b; opts='{}' ;;
 esac
+if [ -n "$OC_SERVER" ]; then ocflags=(--server $OC_SERVER); else ocflags=(--standalone); pkill -x opencode 2>/dev/null; sleep 1; fi  # stale OpenCode processes from earlier runs block new ones
 rm -rf oc-runs/$engine-$n; mkdir -p oc-runs/$engine-$n
 start=$(date +%s.%N)
 for k in $(seq 1 $n); do
@@ -19,7 +21,9 @@ for k in $(seq 1 $n); do
    "models": {"$model": {"name": "$model", "tool_call": true, "options": $opts}}}},
  "model": "local/$model"}
 JSON
-  (cd $d && git init -q && git add -A && GIT_AUTHOR_NAME=bench GIT_AUTHOR_EMAIL=bench@local GIT_COMMITTER_NAME=bench GIT_COMMITTER_EMAIL=bench@local git commit -qm "agent $engine-$n-$k" && s=$(date +%s.%N) && XDG_DATA_HOME=$PWD/.oc/data XDG_STATE_HOME=$PWD/.oc/state opencode run --standalone --auto "There is a bug in calc.py. Run python3 test_calc.py, find the bug, fix it, and run the test again to confirm." > run.out 2>&1; echo $(( $(date +%s.%N) - s )) > seconds) &
+  cp -R oc-runs/home-template $d/.home  # a home that has already fetched the provider package
+  sleep 1                                # 8 OpenCode starts in the same instant hang before any request
+  (cd $d && git init -q && git add -A && GIT_AUTHOR_NAME=bench GIT_AUTHOR_EMAIL=bench@local GIT_COMMITTER_NAME=bench GIT_COMMITTER_EMAIL=bench@local git commit -qm "agent $engine-$n-$k" && s=$(date +%s.%N) && HOME=$PWD/.home XDG_DATA_HOME=$PWD/.home/data XDG_STATE_HOME=$PWD/.home/state XDG_CONFIG_HOME=$PWD/.home/config XDG_CACHE_HOME=$PWD/.home/cache opencode run $ocflags --auto "There is a bug in calc.py. Run python3 test_calc.py, find the bug, fix it, and run the test again to confirm." > run.out 2>&1; echo $(( $(date +%s.%N) - s )) > seconds) &
 done
 wait
 total=$(( $(date +%s.%N) - start ))
