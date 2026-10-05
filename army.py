@@ -178,6 +178,9 @@ class Llama:
         import aiohttp
         if not (GGUF and LLAMA.exists()):
             raise SystemExit("llama.cpp server or the Qwen3.8-27B GGUF is missing")
+        # A server left behind by an interrupted run holds the GPU and the port: clear it first.
+        subprocess.run(f"lsof -ti tcp:{LLAMA_PORT} -sTCP:LISTEN | xargs kill 2>/dev/null", shell=True)
+        time.sleep(2)
         self.server = subprocess.Popen([str(LLAMA), "-m", str(GGUF), "--port", str(LLAMA_PORT), "-ngl", "all",
                                         "-c", str(32768 * self.slots), "-np", str(self.slots), "-ctk", "q8_0", "-ctv", "q8_0"],
                                        stdout=open(HERE / "llama-army.log", "w"), stderr=subprocess.STDOUT)

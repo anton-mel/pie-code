@@ -23,12 +23,23 @@ def army() -> list[str]:
         solved, secs, toks = sum(r["correct"] for r in rs), sum(r["seconds"] for r in rs), sum(r["written"] for r in rs)
         agents = sum(r["agents"] for r in rs) / len(rs)
         out.append(f"| {name.replace('-', ' · ')} | **{solved} / {len(rs)}** | {secs / 60:.0f} min | {secs / len(rs):.0f} s | {toks:,} | {agents:.1f} |")
-    both = [k for k in ("pie-team", "llama-team") if k in rows]
-    if len(both) == 2:
-        pt, lt = (sum(r["seconds"] for r in rows[k]) for k in both)
-        n = min(len(rows["pie-team"]), len(rows["llama-team"]))
-        out += ["", f"Same team, same prompts, same model: pie finishes it **{lt / pt:.1f}x faster** than llama.cpp "
-                    f"(over {n} problems)."]
+    if "pie-team" in rows and "llama-team" in rows:
+        pie, llama = rows["pie-team"], rows["llama-team"]
+        n = min(len(pie), len(llama))
+        ratios = sorted(l["seconds"] / p["seconds"] for p, l in zip(pie[:n], llama[:n]))
+        median = ratios[n // 2] if n % 2 else (ratios[n // 2 - 1] + ratios[n // 2]) / 2
+        ps, ls = sum(r["seconds"] for r in pie[:n]), sum(r["seconds"] for r in llama[:n])
+        pt, lt = sum(r["written"] for r in pie[:n]), sum(r["written"] for r in llama[:n])
+        out += ["", f"### The same team on both engines (problems 1–{n}, both finished)", "",
+                f"Same prompts, same plan, same model. **pie is {median:.1f}x faster per problem (median; "
+                f"{ratios[0]:.1f}x–{ratios[-1]:.1f}x)**, {ls / ps:.1f}x in total: {ps / 60:.0f} min vs {ls / 60:.0f} min. "
+                f"Across all agents pie writes {pt / ps:.0f} tokens/s, llama.cpp {lt / ls:.0f}. "
+                f"Solved: pie {sum(r['correct'] for r in pie[:n])}/{n}, llama.cpp {sum(r['correct'] for r in llama[:n])}/{n} "
+                f"(sampling noise at this size).", "",
+                "| # | answer | pie | llama.cpp | llama.cpp / pie |", "|---|---|---|---|---|"]
+        for p, l in zip(pie[:n], llama[:n]):
+            mark = lambda r: ("✓" if r["correct"] else "✗") + f" {r['seconds']:.0f} s"
+            out.append(f"| {p['k'] + 1} | {p['gold']} | {mark(p)} | {mark(l)} | {l['seconds'] / p['seconds']:.1f}x |")
     return out
 
 
