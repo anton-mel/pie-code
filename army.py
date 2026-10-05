@@ -201,7 +201,10 @@ class Llama:
         body = {"prompt": prompt, "n_predict": n, "temperature": 0.7, "top_p": 0.95, "cache_prompt": True, "stop": ["<|im_end|>"]}
         async with self.http.post(f"http://127.0.0.1:{LLAMA_PORT}/completion", json=body) as r:
             out = await r.json()
-        return out["content"], out.get("tokens_predicted", 0), bool(out.get("stopped_eos") or out.get("stopped_word"))
+        made = out.get("tokens_predicted", 0)
+        # Whatever this build calls it, a generation that ended short of its limit has stopped.
+        stopped = bool(out.get("stopped_eos") or out.get("stopped_word")) or out.get("stop_type") in ("eos", "word") or made < n
+        return out["content"], made, stopped
 
     async def run(self, question: str, mode: str, width: int, budget: int, seed: int, view: View) -> dict:
         k, began = self.k, time.monotonic()
