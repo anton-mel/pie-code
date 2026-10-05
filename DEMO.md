@@ -10,6 +10,22 @@ cd pie-mpp && cargo build --release -p pie --features metal --bin pie && cd ..
 python -m venv .venv && .venv/bin/pip install -e pie-mpp/python/client transformers datasets aiohttp
 ```
 
+## 0. Head to head: OpenCode vs. our agent, same question, same model
+
+```sh
+./demo.sh                          # AIME 2025 #4 (answer 117)
+./demo.sh "your question"          # any question; a second argument picks the mode
+```
+
+OpenCode runs as usual, one agent on llama.cpp. Ours runs on pie in `code` mode: one agent that, like
+OpenCode, runs Python in a sandbox (no network, writes only in a scratch folder), but whose code
+output is written straight into its memory in pie, and which decides itself when to **spawn helpers**:
+each a fork of its memory that knows everything it knows and re-reads nothing, all running at once,
+reporting back together. It never starts redundant agents: no votes, no duplicate solvers.
+
+Measured on AIME 2025 #4 (Qwen3.8-27B, this MacBook), all correct: ours **30–35 s** in three runs;
+OpenCode 46 s and 69 s, and one run where OpenCode's background service hung (the script now clears it).
+
 ## 1. Watch an agent army solve a hard problem
 
 ```sh

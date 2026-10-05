@@ -33,6 +33,26 @@ LLAMA = Path.home() / ".cache/pie-evals/baselines/llama-b11312/llama-server"
 LLAMA_PORT = 8098
 OPEN, CLOSE, SEAL = "<|im_start|>user\n", "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n", "<|im_end|>\n"
 ASK = "{q}\n\nReason step by step, and put your final answer within \\boxed{{}}."
+PYTHON = HERE / "latentmas-ref/.venv/bin/python"
+# Model-written code runs with no network and writes only in its own scratch folder.
+SANDBOX = """(version 1)(allow default)(deny network*)(deny file-write*)
+(allow file-write* (subpath "{scratch}") (subpath "/private/var/folders") (literal "/dev/null"))"""
+
+
+async def run_code(code: str, timeout: float = 20.0) -> str:
+    """Runs one agent's Python block sandboxed; returns what it printed, trimmed."""
+    import tempfile
+    scratch = Path(tempfile.mkdtemp(prefix="army-code-")).resolve()
+    proc = await asyncio.create_subprocess_exec(
+        "sandbox-exec", "-p", SANDBOX.format(scratch=scratch), str(PYTHON), "-c", code, cwd=scratch,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout)
+    except TimeoutError:
+        proc.kill()
+        return f"(stopped after {timeout:.0f} s: too slow; try a faster method)"
+    text = out.decode(errors="replace").strip() or "(no output)"
+    return text if len(text) <= 1500 else text[:700] + "\n...\n" + text[-700:]
 
 
 def rust_constants() -> dict:
@@ -141,12 +161,13 @@ class Pie:
 
     async def run(self, question: str, mode: str, width: int, budget: int, seed: int, view: View) -> dict:
         from pie_client import Event
+        self.doubt = getattr(self, "doubt", 2.0)
         full = self.tok.apply_chat_template([{"role": "user", "content": ASK.format(q=question)}], tokenize=False,
                                             add_generation_prompt=True, enable_thinking=False)
         head = full[: full.rindex("<|im_end|>")]
         job = {"head": self.enc(head), "turn_open": self.enc(SEAL + OPEN), "turn_close": self.enc(CLOSE), "seal": self.enc(SEAL),
                "stops": [self.tok.convert_tokens_to_ids("<|im_end|>"), self.tok.eos_token_id],
-               "mode": mode, "width": width, "budget": budget, "seed": seed}
+               "mode": mode, "width": width, "budget": budget, "seed": seed, "doubt": self.doubt}
         process = await self.client.launch_process(self.program, job)
         traces: dict = {}
         while True:
@@ -154,7 +175,13 @@ class Pie:
             if event != Event.Message:
                 raise RuntimeError(f"army process ended: {value}")
             m = json.loads(value)
-            if m["event"] == "say":
+            if m["event"] == "tool":
+                async def reply(m=m):
+                    out = await run_code(m["code"])
+                    await process.signal(json.dumps({"id": m["id"], "output": out}))
+                asyncio.ensure_future(reply())
+                view.say(f"agent {m['id']} runs Python: {m['code'].splitlines()[0][:80] if m['code'] else ''}")
+            elif m["event"] == "say":
                 view.say(m["text"])
             elif m["event"] == "board":
                 view.board(m)
@@ -322,7 +349,11 @@ class Llama:
 # ── commands ────────────────────────────────────────────────────────────────────────────────────
 
 def engine(a):
-    return Pie(a.config) if a.engine == "pie" else Llama(a.slots)
+    if a.engine == "llama":
+        return Llama(a.slots)
+    pie = Pie(a.config)
+    pie.doubt = a.doubt
+    return pie
 
 
 async def ask(a):
@@ -373,7 +404,8 @@ if __name__ == "__main__":
         else:
             s.add_argument("--n", type=int, default=15, help="AIME 2025 problems")
         s.add_argument("--engine", choices=["pie", "llama"], default="pie")
-        s.add_argument("--mode", choices=["team", "single", "vote"], default="team")
+        s.add_argument("--mode", choices=["code", "tree", "team", "single", "vote"], default="code")
+        s.add_argument("--doubt", type=float, default=2.0, help="tree: entropy (nats) that makes an agent branch")
         s.add_argument("--width", type=int, default=8)
         s.add_argument("--budget", type=int, default=65536)
         s.add_argument("--seed", type=int, default=0)

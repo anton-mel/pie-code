@@ -41,6 +41,13 @@ struct Job {
     budget: usize,
     #[serde(default)]
     seed: u32,
+    /// `tree`: entropy (nats) above which a chunk counts as a hesitation worth branching on.
+    #[serde(default = "doubt")]
+    doubt: f32,
+}
+
+fn doubt() -> f32 {
+    2.0
 }
 
 fn default_mode() -> String {
@@ -70,12 +77,34 @@ const CONCLUDE: &str =
     "Stop working now. Write only one line: `RESULT: <what you established, in one sentence>`.";
 const SOLVE: &str = "Using the problem and every team finding above (check them: a finding can be wrong), \
 write the complete solution. End with the final answer in \\boxed{}.";
+const CODE_RULES: &str = "You can run Python 3 (the standard library, sympy, numpy). To run code, write \
+exactly one short ```python block that prints what you need, then end your turn: its output comes back to \
+you. Keep code short and put your reasoning in plain text, not in comments. Compute instead of reasoning at \
+length: brute force, enumerate, use sympy, or estimate by simulation to check a formula. When you are sure, \
+write the final answer in \\boxed{}.";
+const SPAWN_RULES: &str = "You can also delegate, and should when the work has independent parts. If the \
+remaining work splits into pieces that can run at the same time (separate cases, separate quantities or \
+probabilities, a simulation to check your formula while you derive it), write one ```spawn block with one task per line, then end your turn. Helpers do all the tasks at once, each \
+knowing everything you know so far, and their results come back to you together. Spawn only for work that \
+truly runs in parallel and that you will not do yourself: never to repeat work.";
+const HELPER: &str = "You are a helper the agent above spawned. Do only this task: {task}\nYou can run Python \
+as described. Be brief. End with one line `RESULT: <your result>`.";
+/// Helpers one spawn block may start.
+const SPAWN_MAX: usize = 8;
+const NUDGE: &str =
+    "Continue: run code to check your reasoning, or give the final answer in \\boxed{}.";
+/// Tool calls one agent may make.
+const TOOL_TURNS: usize = 8;
+/// `code`: tokens the agent may write across all its turns.
+const CODE_MAX: usize = 12_288;
 const SOLVE_ALONE: &str = "Solve it step by step. End with the final answer in \\boxed{}.";
 const REFEREE: &str = "The team's solvers disagree: they got {answers}. Using the problem and the team \
 findings above, determine carefully which is right, re-deriving the step where they differ. End with the \
 final answer in \\boxed{}.";
 
 const ROUND: usize = 256;
+/// `tree`: tokens between checkpoints. Shorter finds hesitations sooner, at a fork per chunk.
+const TREE_CHUNK: usize = 64;
 const WORKER_MAX: usize = 1024;
 const SOLVER_MAX: usize = 6144;
 const WAVES: usize = 3;
@@ -98,6 +127,14 @@ fn step(rng: &Tensor) -> (Tensor, Tensor) {
     let token = reshape(nucleus_sample(&scaled, TOP_P, rng), [1]);
     let unsure = reshape(entropy(softmax(&scaled)), [1]);
     (token, unsure)
+}
+
+/// `step`'s token with one token ruled out: a fork must not take the road its parent took.
+fn step_banning(rng: &Tensor, ban: u32) -> Tensor {
+    let vocab = intrinsics::vocab();
+    let scaled = reshape(&intrinsics::logits() / TEMPERATURE, [vocab]);
+    let masked = select(eq(iota(vocab), ban), -1.0e9f32, &scaled);
+    reshape(nucleus_sample(reshape(masked, [1, vocab]), TOP_P, rng), [1])
 }
 
 struct Mind {
@@ -180,6 +217,11 @@ impl Mind {
 
     /// Reads `tokens` after the context; returns the token sampled after the last one.
     async fn read(&mut self, tokens: &[u32], seed: u32) -> Result<i32> {
+        self.read_banning(tokens, seed, None).await
+    }
+
+    /// `read`, with the token sampled after the last one never `ban`: the other road at a fork.
+    async fn read_banning(&mut self, tokens: &[u32], seed: u32, ban: Option<u32>) -> Result<i32> {
         let page = kv_page_size();
         let mut next = 0;
         for chunk in tokens.chunks(prefill_chunk_hint().max(1) as usize) {
@@ -212,7 +254,10 @@ impl Mind {
             let put = out;
             fwd.epilogue(move || {
                 let r = rng.take();
-                put.put(step(&r).0);
+                match ban {
+                    Some(ban) => put.put(step_banning(&r, ban)),
+                    None => put.put(step(&r).0),
+                }
                 rng.put(&r + iota(2));
             });
             let on = Pipeline::new();
@@ -333,6 +378,14 @@ struct Agent {
     fate: &'static str,
     /// Tokens of its text already streamed.
     sent: usize,
+    /// Where its current turn starts in `tokens`: the text a tool call is read from.
+    turn_from: usize,
+    /// Tool calls it has made.
+    tools: usize,
+    /// Helpers it spawned that have not reported yet; it is paused until they all have.
+    waiting: usize,
+    /// What its helpers reported, delivered together when the last one does.
+    reports: Vec<String>,
 }
 
 impl Agent {
@@ -374,6 +427,8 @@ impl Agent {
 
 struct Run {
     job: Job,
+    /// Tokens a live agent decodes per round.
+    chunk: usize,
     agents: Vec<Agent>,
     written: usize,
     began: u64,
@@ -469,6 +524,10 @@ impl Run {
             parent,
             fate: "",
             sent: 0,
+            turn_from: 0,
+            tools: 0,
+            waiting: 0,
+            reports: Vec::new(),
         });
         Ok(id)
     }
@@ -510,7 +569,7 @@ impl Run {
                 let room = a.max.saturating_sub(a.tokens.len()).max(1);
                 (
                     id,
-                    ((ROUND as f32 * weight) as usize)
+                    ((self.chunk as f32 * weight) as usize)
                         .clamp(32, room.max(32))
                         .min(room),
                 )
@@ -522,17 +581,18 @@ impl Run {
     /// Returns the agents that finished.
     async fn round(&mut self) -> Result<Vec<usize>> {
         let shares = self.shares();
-        let (wave, seed, stops) = (self.wave, self.job.seed, self.job.stops.clone());
+        let (wave, seed, stops, chunk) =
+            (self.wave, self.job.seed, self.job.stops.clone(), self.chunk);
         let stops = &stops;
         let results = join_all(
             self.agents
                 .iter_mut()
-                .filter(|a| a.state == State::Live)
+                .filter(|a| a.state == State::Live && a.waiting == 0)
                 .map(|a| {
                     let count = shares
                         .iter()
                         .find(|(id, _)| *id == a.id)
-                        .map_or(ROUND, |(_, c)| *c);
+                        .map_or(chunk, |(_, c)| *c);
                     async move {
                         let s = seed
                             .wrapping_add((a.id as u32).wrapping_mul(104_729))
@@ -788,7 +848,51 @@ impl Run {
     /// Handles every agent that finished this round, whatever it was doing. Returns true when
     /// enough votes agree: everything still running is killed and its memory freed.
     async fn settle(&mut self, finished: Vec<usize>, blackboard: &mut Mind) -> Result<bool> {
+        let mut calls: Vec<(usize, String)> = Vec::new();
+        let mut spawns: Vec<(usize, Vec<String>)> = Vec::new();
+        let mut delivered: Vec<usize> = Vec::new();
         for id in finished {
+            if self.job.mode == "code" {
+                // A turn can end in a spawn block, a Python block, or neither.
+                if let Some(tasks) = self.spawn_call(id) {
+                    spawns.push((id, tasks));
+                    continue;
+                }
+                if let Some(code) = self.tool_call(id) {
+                    calls.push((id, code));
+                    continue;
+                }
+                let a = &self.agents[id];
+                let turn = model::decode(&a.tokens[a.turn_from..]).unwrap_or_default();
+                if a.kind == Kind::Solver
+                    && boxed(&turn).is_none()
+                    && a.tools < TOOL_TURNS
+                    && a.tokens.len() < a.max
+                {
+                    self.agents[id].tools += 1;
+                    self.resume(id, NUDGE).await?;
+                    continue;
+                }
+                if self.agents[id].kind == Kind::Worker {
+                    self.conclude(id).await?;
+                    let found = finding(&self.agents[id].text());
+                    self.agents[id].finding = Some(found.clone());
+                    self.agents[id].retire(State::Done, "reported");
+                    if let Some(parent) = self.agents[id].parent {
+                        let label = self.agents[id].label.clone();
+                        let task = self.agents[id].task.clone();
+                        self.agents[parent]
+                            .reports
+                            .push(format!("{label} ({task}): {found}"));
+                        self.agents[parent].waiting -= 1;
+                        if self.agents[parent].waiting == 0 {
+                            delivered.push(parent);
+                        }
+                    }
+                    self.say(format!("{} reports: {found}", self.agents[id].label));
+                    continue;
+                }
+            }
             match self.agents[id].kind {
                 Kind::Main => self.agents[id].retire(State::Done, "planned"),
                 Kind::Worker => {
@@ -820,9 +924,27 @@ impl Run {
                 }
             }
         }
-        if let Some((answer, votes, runner_up, _)) = tally(&self.agents)
-            && votes >= QUORUM
-            && votes > runner_up
+        if !calls.is_empty() {
+            self.run_tools(calls).await?;
+        }
+        for (id, tasks) in spawns {
+            self.spawn_helpers(id, tasks).await?;
+        }
+        for id in delivered {
+            let reports = std::mem::take(&mut self.agents[id].reports);
+            self.resume(
+                id,
+                &format!("Your helpers' results:\n{}", reports.join("\n")),
+            )
+            .await?;
+        }
+        if let Some((answer, mut votes, runner_up, _)) = tally(&self.agents)
+            && {
+                if self.job.mode == "tree" {
+                    votes = independent(&self.agents, &answer);
+                }
+                votes >= QUORUM && votes > runner_up.min(votes.saturating_sub(1))
+            }
         {
             let stopped = self
                 .agents
@@ -837,6 +959,202 @@ impl Run {
         }
         self.board(None);
         Ok(false)
+    }
+
+    /// The Python block an agent's finished turn ends on, if it asked to run one and may.
+    fn tool_call(&self, id: usize) -> Option<String> {
+        let a = &self.agents[id];
+        if a.tools >= TOOL_TURNS || a.tokens.len() >= a.max {
+            return None;
+        }
+        let turn = model::decode(&a.tokens[a.turn_from..]).unwrap_or_default();
+        if boxed(&turn).is_some() {
+            return None;
+        }
+        // Any fence is a request: ```python, ```py, or a bare one, the way the model writes it.
+        let open = turn
+            .rfind("```")
+            .and_then(|close| turn[..close].rfind("```"))?;
+        let body = &turn[open + 3..];
+        let body = body
+            .strip_prefix("python3")
+            .or(body.strip_prefix("python"))
+            .or(body.strip_prefix("py"))
+            .unwrap_or(body);
+        if body.trim_start().starts_with("spawn") {
+            return None;
+        }
+        let end = body.find("```")?;
+        Some(body[..end].trim().to_string())
+    }
+
+    /// The tasks of a `spawn` block an agent's finished turn ends on.
+    fn spawn_call(&self, id: usize) -> Option<Vec<String>> {
+        let a = &self.agents[id];
+        if a.kind == Kind::Worker || a.tokens.len() >= a.max {
+            return None;
+        }
+        let turn = model::decode(&a.tokens[a.turn_from..]).unwrap_or_default();
+        if boxed(&turn).is_some() {
+            return None;
+        }
+        let start = turn.rfind("```spawn")? + "```spawn".len();
+        let end = turn[start..].find("```").map_or(turn.len(), |e| e + start);
+        let tasks: Vec<String> = turn[start..end]
+            .lines()
+            .map(|l| {
+                l.trim()
+                    .trim_start_matches(|c: char| {
+                        c.is_ascii_digit() || matches!(c, '-' | '*' | '.' | ')' | ' ')
+                    })
+                    .trim()
+                    .to_string()
+            })
+            .filter(|l| l.len() >= 8)
+            .take(SPAWN_MAX)
+            .collect();
+        (!tasks.is_empty()).then_some(tasks)
+    }
+
+    /// Starts a helper per task, each a fork of the agent as it is now: it knows everything the
+    /// agent knows and pays only for its own task. The agent pauses until they all report.
+    async fn spawn_helpers(&mut self, id: usize, tasks: Vec<String>) -> Result<()> {
+        self.say(format!(
+            "agent {} spawns {} helpers that run at once",
+            id + 1,
+            tasks.len()
+        ));
+        for task in &tasks {
+            let mut ask = self.job.seal.clone();
+            ask.extend(self.turn(&HELPER.replace("{task}", task)));
+            let mut mind = self.agents[id].mind.fork()?;
+            let helper = self.agents.len();
+            let next = mind
+                .read(&ask, self.job.seed.wrapping_add(700 + helper as u32))
+                .await?;
+            self.agents.push(Agent {
+                id: helper,
+                kind: Kind::Worker,
+                label: format!("H{}", helper + 1),
+                task: task.clone(),
+                mind,
+                next,
+                tokens: vec![next as u32],
+                entropy: Vec::new(),
+                state: State::Live,
+                max: WORKER_MAX,
+                answer: None,
+                finding: None,
+                heard: 0,
+                parent: Some(id),
+                fate: "",
+                sent: 0,
+                turn_from: 0,
+                tools: 0,
+                waiting: 0,
+                reports: Vec::new(),
+            });
+            self.say(format!("  H{}: {task}", helper + 1));
+        }
+        let a = &mut self.agents[id];
+        a.waiting = tasks.len();
+        a.fate = "delegated";
+        self.board(None);
+        Ok(())
+    }
+
+    /// Wakes a paused agent with `text` as its next turn.
+    async fn resume(&mut self, id: usize, text: &str) -> Result<()> {
+        let mut tokens = self.job.seal.clone();
+        tokens.extend(self.turn(text));
+        self.traces();
+        send(
+            serde_json::json!({ "event": "trace", "id": id + 1, "text": format!("\n\n[{text}]\n\n") }),
+        );
+        let seed = self.job.seed.wrapping_add(900 + id as u32);
+        let a = &mut self.agents[id];
+        a.next = a.mind.read(&tokens, seed).await?;
+        a.sent = a.tokens.len();
+        a.turn_from = a.tokens.len();
+        a.tokens.push(a.next as u32);
+        a.fate = "";
+        Ok(())
+    }
+
+    /// Hands each call to the host, which runs it sandboxed, and writes every output into its
+    /// agent's context as the next turn, all in one batched read: no agent re-reads anything.
+    async fn run_tools(&mut self, calls: Vec<(usize, String)>) -> Result<()> {
+        for (id, code) in &calls {
+            send(serde_json::json!({ "event": "tool", "id": id + 1, "code": code }));
+        }
+        let mut outputs: Vec<(usize, String)> = Vec::new();
+        while outputs.len() < calls.len() {
+            let Some(reply) = session::receive().await else {
+                return Err("the host went away while code ran".into());
+            };
+            let reply: serde_json::Value =
+                serde_json::from_str(&reply).map_err(|e| e.to_string())?;
+            let id = reply["id"].as_u64().unwrap_or(0) as usize;
+            if id == 0 || id > self.agents.len() {
+                continue;
+            }
+            outputs.push((
+                id - 1,
+                reply["output"].as_str().unwrap_or_default().to_string(),
+            ));
+        }
+        self.traces();
+        let turns: Vec<(usize, Vec<u32>)> = outputs
+            .iter()
+            .map(|(id, out)| {
+                let mut tokens = self.job.seal.clone();
+                tokens.extend(self.turn(&format!("Output:\n```\n{out}\n```")));
+                (*id, tokens)
+            })
+            .collect();
+        let seed = self.job.seed;
+        let turns = &turns;
+        let read = join_all(
+            self.agents
+                .iter_mut()
+                .filter(|a| turns.iter().any(|(id, _)| *id == a.id))
+                .map(|a| async move {
+                    let tokens = &turns
+                        .iter()
+                        .find(|(id, _)| *id == a.id)
+                        .expect("a turn per caller")
+                        .1;
+                    (
+                        a.id,
+                        a.mind
+                            .read(tokens, seed.wrapping_add(500 + a.id as u32))
+                            .await,
+                    )
+                }),
+        )
+        .await;
+        for (id, next) in read {
+            let out = &outputs
+                .iter()
+                .find(|(o, _)| *o == id)
+                .expect("an output per caller")
+                .1;
+            send(
+                serde_json::json!({ "event": "trace", "id": id + 1, "text": format!("\n\n[output]\n{out}\n\n") }),
+            );
+            let a = &mut self.agents[id];
+            a.next = next?;
+            a.tools += 1;
+            a.sent = a.tokens.len();
+            a.turn_from = a.tokens.len();
+            a.tokens.push(a.next as u32);
+            self.say(format!(
+                "agent {} ran code ({} so far)",
+                id + 1,
+                self.agents[id].tools
+            ));
+        }
+        Ok(())
     }
 
     /// Rounds until `busy` holds no live agent; true when the run is decided on the way.
@@ -1010,9 +1328,227 @@ async fn team(run: &mut Run, root: &Mind) -> Result<()> {
     Ok(())
 }
 
+/// A branch's state at the start of its current chunk: if the chunk turns out to hold a
+/// hesitation, siblings start here and take that decision differently.
+struct Checkpoint {
+    mind: Mind,
+    next: i32,
+    tokens: usize,
+    entropy: usize,
+}
+
+/// Fork on doubt. One agent solves; before each short chunk pie checkpoints it (a copy-on-write
+/// fork), and if the model hesitates inside the chunk, siblings start from the checkpoint and
+/// take that decision their own way. They share everything written before it, so the only extra
+/// work is the hard decision itself; any branch can branch again at its own next doubt. Branches
+/// that converge onto another's path are killed at once, the live count stays within `width`,
+/// and two branches that agree end the run. A question the model never hesitates on never
+/// branches and runs at one agent's speed.
+async fn tree(run: &mut Run, root: &Mind) -> Result<()> {
+    run.chunk = TREE_CHUNK;
+    let width = run.job.width.clamp(1, 16);
+    let mut blackboard = root.fork()?;
+    run.spawn(
+        root,
+        Kind::Solver,
+        "B1".into(),
+        "the solution".into(),
+        SOLVE_ALONE,
+        SOLVER_MAX,
+        None,
+    )
+    .await?;
+    run.board(None);
+    loop {
+        let live: Vec<usize> = run
+            .agents
+            .iter()
+            .filter(|a| a.state == State::Live)
+            .map(|a| a.id)
+            .collect();
+        if live.is_empty() || run.written >= run.job.budget {
+            return Ok(());
+        }
+        // Checkpoints only while there is room to branch: a full tree cannot use one.
+        let mut checkpoints: Vec<(usize, Checkpoint)> = Vec::new();
+        if live.len() < width {
+            for &id in &live {
+                let a = &run.agents[id];
+                let mind = a.mind.fork()?;
+                checkpoints.push((
+                    id,
+                    Checkpoint {
+                        mind,
+                        next: a.next,
+                        tokens: a.tokens.len(),
+                        entropy: a.entropy.len(),
+                    },
+                ));
+            }
+        }
+        let finished = run.round().await?;
+        // Where did each live branch hesitate most in this chunk, and how much?
+        let mut doubts: Vec<(usize, f32, usize)> = checkpoints
+            .iter()
+            .filter(|(id, _)| !finished.contains(id))
+            .filter_map(|(id, c)| {
+                let chunk = &run.agents[*id].entropy[c.entropy..];
+                let (at, peak) =
+                    chunk
+                        .iter()
+                        .copied()
+                        .enumerate()
+                        .fold(
+                            (0, 0.0f32),
+                            |best, (i, h)| if h > best.1 { (i, h) } else { best },
+                        );
+                // A fork late in an agent's budget has no room left to finish a different road.
+                let early = c.tokens * 4 < run.agents[*id].max * 3;
+                (early && peak > run.job.doubt).then_some((*id, peak, at))
+            })
+            .collect();
+        doubts.sort_by(|a, b| b.1.total_cmp(&a.1));
+        for (id, peak, at) in doubts {
+            if run.agents.iter().filter(|a| a.state == State::Live).count() >= width {
+                break;
+            }
+            let Some(slot) = checkpoints.iter().position(|(c, _)| *c == id) else {
+                continue;
+            };
+            let (_, mut c) = checkpoints.swap_remove(slot);
+            // Replay the parent up to the token it hesitated on, then take any token but its.
+            let (replay, taken, tokens, entropy) = {
+                let parent = &run.agents[id];
+                let mut replay = vec![c.next as u32];
+                replay.extend(&parent.tokens[c.tokens..c.tokens + at]);
+                (
+                    replay,
+                    parent.tokens[c.tokens + at],
+                    parent.tokens[..c.tokens + at].to_vec(),
+                    parent.entropy[..c.entropy + at].to_vec(),
+                )
+            };
+            let sibling = run.agents.len();
+            let seed = run.job.seed.wrapping_add(31 * sibling as u32 + 1);
+            let next = c.mind.read_banning(&replay, seed, Some(taken)).await?;
+            let label = format!("B{}", sibling + 1);
+            let mut tokens = tokens;
+            tokens.push(next as u32);
+            let mut entropy = entropy;
+            entropy.push(peak);
+            let fork_at = tokens.len() - 1;
+            run.agents.push(Agent {
+                id: sibling,
+                kind: Kind::Solver,
+                label: label.clone(),
+                task: format!(
+                    "branch of agent {} at token {fork_at} (doubt {peak:.1})",
+                    id + 1
+                ),
+                mind: c.mind,
+                next,
+                tokens,
+                entropy,
+                state: State::Live,
+                max: SOLVER_MAX,
+                answer: None,
+                finding: None,
+                heard: 0,
+                parent: Some(id),
+                fate: "",
+                sent: fork_at,
+                turn_from: 0,
+                tools: 0,
+                waiting: 0,
+                reports: Vec::new(),
+            });
+            run.say(format!(
+                "{label} forks from agent {} at token {fork_at}, where it hesitated (entropy {peak:.1}), and takes the other road.",
+                id + 1
+            ));
+        }
+        drop(checkpoints);
+        if run.settle(finished, &mut blackboard).await? {
+            return Ok(());
+        }
+        // Converged branches do the same work twice: the surer one stays.
+        let live: Vec<usize> = run
+            .agents
+            .iter()
+            .filter(|a| a.state == State::Live)
+            .map(|a| a.id)
+            .collect();
+        for (i, &x) in live.iter().enumerate() {
+            for &y in &live[i + 1..] {
+                if run.agents[x].state != State::Live || run.agents[y].state != State::Live {
+                    continue;
+                }
+                // Only what each wrote after they parted: a fresh fork shares its parent's text.
+                let (tx, ty) = (&run.agents[x].tokens, &run.agents[y].tokens);
+                let parted = tx.iter().zip(ty.iter()).take_while(|(a, b)| a == b).count();
+                if tx.len() < parted + 128 || ty.len() < parted + 128 {
+                    continue;
+                }
+                let (gx, gy) = (grams(&tx[parted..]), grams(&ty[parted..]));
+                if gx.intersection(&gy).count() * 10 > gx.len().min(gy.len()) * 8 {
+                    let (keep, lose) = if run.agents[x].unsure(256) <= run.agents[y].unsure(256) {
+                        (x, y)
+                    } else {
+                        (y, x)
+                    };
+                    run.agents[lose].retire(State::Killed, "merged");
+                    run.say(format!(
+                        "agent {} rejoined agent {}: same path, no double work",
+                        lose + 1,
+                        keep + 1
+                    ));
+                }
+            }
+        }
+        // With no rival left running, a finished answer is the answer.
+        let still = run.agents.iter().filter(|a| a.state == State::Live).count();
+        if still == 0 && run.agents.iter().any(|a| a.answer.is_some()) {
+            return Ok(());
+        }
+    }
+}
+
+/// Agents that gave `answer` and did not reach it on the same path: two that share more than
+/// half their text before they part are one line of reasoning, and count once.
+fn independent(agents: &[Agent], answer: &str) -> usize {
+    let mut kept: Vec<&Agent> = Vec::new();
+    for a in agents
+        .iter()
+        .filter(|a| a.state == State::Done && a.answer.as_deref() == Some(answer))
+    {
+        let alone = kept.iter().all(|k| {
+            let shared = k
+                .tokens
+                .iter()
+                .zip(&a.tokens)
+                .take_while(|(x, y)| x == y)
+                .count();
+            shared * 2 < k.tokens.len().min(a.tokens.len())
+        });
+        if alone {
+            kept.push(a);
+        }
+    }
+    kept.len()
+}
+
+/// Token 4-grams of an agent's last 256 tokens.
+fn grams(tokens: &[u32]) -> HashSet<[u32; 4]> {
+    tokens[tokens.len().saturating_sub(256)..]
+        .windows(4)
+        .map(|w| [w[0], w[1], w[2], w[3]])
+        .collect()
+}
+
 #[inferlet::main]
 async fn main(job: Job) -> Result<String> {
     let mut run = Run {
+        chunk: ROUND,
         job,
         agents: Vec::new(),
         written: 0,
@@ -1024,6 +1560,31 @@ async fn main(job: Job) -> Result<String> {
     root.read(&run.job.head.clone(), run.job.seed).await?;
     match run.job.mode.as_str() {
         "team" => team(&mut run, &root).await?,
+        "tree" => tree(&mut run, &root).await?,
+        "code" => {
+            // One agent, like OpenCode's, that can run code and decides itself when to spawn.
+            let mut blackboard = root.fork()?;
+            let ask = format!("{CODE_RULES}\n{SPAWN_RULES}");
+            run.spawn(
+                &root,
+                Kind::Solver,
+                "A1".into(),
+                "the solution".into(),
+                &ask,
+                CODE_MAX,
+                None,
+            )
+            .await?;
+            run.chunk = TREE_CHUNK * 2;
+            run.board(None);
+            while run.agents.iter().any(|a| a.state == State::Live) && run.written < run.job.budget
+            {
+                let finished = run.round().await?;
+                if run.settle(finished, &mut blackboard).await? {
+                    break;
+                }
+            }
+        }
         mode => {
             // The baselines read the question with the plain instruction closing its turn.
             let n = if mode == "vote" {
