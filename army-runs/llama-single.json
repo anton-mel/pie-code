@@ -1,0 +1,86 @@
+[
+ {
+  "k": 0,
+  "gold": "70",
+  "correct": true,
+  "answer": "70",
+  "votes": 1,
+  "agents": 1,
+  "workers": 0,
+  "findings": 0,
+  "written": 1273,
+  "seconds": 58.0
+ },
+ {
+  "k": 1,
+  "gold": "588",
+  "correct": false,
+  "answer": "",
+  "votes": 0,
+  "agents": 1,
+  "workers": 0,
+  "findings": 0,
+  "written": 6144,
+  "seconds": 295.9
+ },
+ {
+  "k": 2,
+  "gold": "16",
+  "correct": true,
+  "answer": "16",
+  "votes": 1,
+  "agents": 1,
+  "workers": 0,
+  "findings": 0,
+  "written": 1749,
+  "seconds": 85.8
+ },
+ {
+  "k": 3,
+  "gold": "117",
+  "correct": true,
+  "answer": "117",
+  "votes": 1,
+  "agents": 1,
+  "workers": 0,
+  "findings": 0,
+  "written": 5932,
+  "seconds": 292.9
+ },
+ {
+  "k": 4,
+  "gold": "279",
+  "correct": true,
+  "answer": "279",
+  "votes": 1,
+  "agents": 1,
+  "workers": 0,
+  "findings": 0,
+  "written": 4340,
+  "seconds": 407.0
+ },
+ {
+  "k": 5,
+  "gold": "504",
+  "correct": true,
+  "answer": "504",
+  "votes": 1,
+  "agents": 1,
+  "workers": 0,
+  "findings": 0,
+  "written": 1526,
+  "seconds": 366.4
+ },
+ {
+  "k": 6,
+  "gold": "821",
+  "correct": true,
+  "answer": "821",
+  "votes": 1,
+  "agents": 1,
+  "workers": 0,
+  "findings": 0,
+  "written": 5985,
+  "seconds": 1484.1
+ }
+]
