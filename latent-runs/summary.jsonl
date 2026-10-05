@@ -1,0 +1,8 @@
+{"engine": "pie", "model": "Qwen/Qwen3.5-4B", "method": "latent", "task": "gsm8k", "n": 100, "steps": 10, "accuracy": 0.46, "seconds": 397.2, "teams": 32, "prompt_tokens": 71596, "made_tokens": 153823}
+{"engine": "pie", "model": "Qwen/Qwen3.5-4B", "method": "single", "task": "arc_challenge", "n": 100, "steps": 10, "accuracy": 0.78, "seconds": 284.7, "teams": 32, "prompt_tokens": 17974, "made_tokens": 139642}
+done
+{"engine": "pie", "model": "Qwen/Qwen3.5-4B", "method": "single", "task": "gsm8k", "n": 100, "steps": 10, "accuracy": 0.65, "seconds": 292.0, "teams": 32, "prompt_tokens": 14274, "made_tokens": 152505}
+{"engine": "pie", "model": "Qwen/Qwen3.5-4B", "method": "single", "task": "arc_challenge", "n": 100, "steps": 10, "accuracy": 0.73, "seconds": 272.3, "teams": 32, "prompt_tokens": 17974, "made_tokens": 138491}
+{"engine": "pie", "model": "Qwen/Qwen3.5-4B", "method": "single", "task": "gsm8k", "n": 100, "steps": 10, "accuracy": 0.67, "seconds": 415.4, "teams": 32, "prompt_tokens": 14274, "made_tokens": 153583}
+{"engine": "pie", "model": "Qwen/Qwen3.5-4B", "method": "text", "task": "gsm8k", "n": 100, "steps": 10, "accuracy": 0.32, "seconds": 2522.4, "teams": 32, "prompt_tokens": 1044485, "made_tokens": 663422}
+{"engine": "pie", "model": "Qwen/Qwen3.5-4B", "method": "latent", "task": "arc_challenge", "n": 100, "steps": 10, "accuracy": 0.21, "seconds": 448.3, "teams": 32, "prompt_tokens": 77396, "made_tokens": 185597}

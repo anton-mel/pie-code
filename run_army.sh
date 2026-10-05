@@ -13,11 +13,12 @@ bench() {
 }
 
 mkdir -p army-runs
+# The headline comparison first: the same team on both engines.
 bench pie team
-bench pie single
-bench pie vote
 bench llama team
+bench pie single
 bench llama single
+bench pie vote
 
 ./run_latent.sh &
 (cd latentmas-ref && ./runs.sh > runs/runs.log 2>&1) &
